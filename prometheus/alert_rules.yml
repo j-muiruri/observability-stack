@@ -1,0 +1,54 @@
+groups:
+  - name: golden-signals
+    rules:
+      - alert: ServiceDown
+        expr: up{job=~"php-laravel-app|node-app|java-app"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} is down"
+          description: "Prometheus has failed to scrape {{ $labels.job }} for 1 minute."
+
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m])) by (service)
+            / sum(rate(http_requests_total[5m])) by (service) > 0.02
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High 5xx error rate on {{ $labels.service }}"
+          description: "{{ $labels.service }} has a 5xx error rate above 2% for 5 minutes."
+
+      - alert: HighLatencyP95
+        expr: |
+          histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service)) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High p95 latency on {{ $labels.service }}"
+          description: "{{ $labels.service }} p95 request duration has been above 1s for 5 minutes."
+
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_avail_bytes / node_filesystem_size_bytes) < 0.15
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk space low on {{ $labels.instance }}"
+          description: "Less than 15% free space remaining on {{ $labels.mountpoint }}."
+
+  - name: test-alert
+    rules:
+      # A deliberately trivial, always-true alert used ONLY to confirm the
+      # Prometheus -> Alertmanager -> notification pipeline works end to end.
+      # Remove this once you've confirmed a test notification arrives.
+      - alert: WiringTest
+        expr: vector(1)
+        labels:
+          severity: info
+        annotations:
+          summary: "Alerting pipeline wiring test"
+          description: "If you see this in Alertmanager/Slack, Prometheus -> Alertmanager -> notification channel is working."

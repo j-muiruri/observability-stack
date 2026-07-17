@@ -1,0 +1,46 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: "default"
+  group_by: ["alertname", "service"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers:
+        - severity="critical"
+      receiver: "default"
+      repeat_interval: 1h
+
+receivers:
+  - name: "default"
+    # --- Local testing default: logs to Alertmanager's own UI at http://localhost:9093 ---
+    # This receiver intentionally does nothing external, so the stack works offline.
+    # Replace/extend it with one of the options below once you're ready.
+
+    # Option A: Slack (uncomment and set your webhook URL)
+    # slack_configs:
+    #   - api_url: "https://hooks.slack.com/services/XXX/YYY/ZZZ"
+    #     channel: "#alerts"
+    #     send_resolved: true
+    #     title: '{{ .CommonAnnotations.summary }}'
+    #     text: '{{ .CommonAnnotations.description }}'
+
+    # Option B: generic webhook (e.g. https://webhook.site for a throwaway test URL)
+    # webhook_configs:
+    #   - url: "https://webhook.site/REPLACE-ME"
+    #     send_resolved: true
+
+    # Option C: email (needs an SMTP relay reachable from this container)
+    # email_configs:
+    #   - to: "you@example.com"
+    #     from: "alertmanager@local.test"
+    #     smarthost: "smtp.example.com:587"
+    #     auth_username: "you@example.com"
+    #     auth_password: "app-password"
+
+inhibit_rules:
+  - source_matchers: ["severity=critical"]
+    target_matchers: ["severity=warning"]
+    equal: ["service"]

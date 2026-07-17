@@ -1,0 +1,58 @@
+// ---------------------------------------------------------------------------
+// Grafana Alloy config — local stack
+//
+// Role of Alloy here: single ingest point for traces and logs sent by your
+// PHP/Node/Java apps' OpenTelemetry SDKs. Metrics are scraped directly by
+// Prometheus (see prometheus/prometheus.yml) since your apps expose native
+// /metrics endpoints — that's simpler than routing metrics through Alloy too.
+//
+// Inspect this pipeline live at http://localhost:12345 once the stack is up.
+// ---------------------------------------------------------------------------
+
+otelcol.receiver.otlp "default" {
+  grpc {
+    endpoint = "0.0.0.0:4317"
+  }
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+  output {
+    traces = [otelcol.exporter.otlp.tempo.input]
+    logs   = [otelcol.exporter.loki.default.input]
+  }
+}
+
+// --- Traces: OTLP -> Tempo ---
+otelcol.exporter.otlp "tempo" {
+  client {
+    endpoint = "tempo:4317"
+    tls {
+      insecure = true
+    }
+  }
+}
+
+// --- Logs (from apps' OTel SDKs): OTLP -> Loki ---
+otelcol.exporter.loki "default" {
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+
+// --- Logs (from container stdout/stderr): Docker socket -> Loki ---
+// Useful once your apps run as containers on the `observability` network too.
+// If your apps run directly on the host for now, this simply has nothing to
+// discover yet and is harmless.
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+loki.source.docker "containers" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.docker.containers.targets
+  forward_to = [loki.write.default.receiver]
+}

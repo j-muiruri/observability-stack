@@ -1,0 +1,46 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+rule_files:
+  - "/etc/prometheus/alert_rules.yml"
+
+scrape_configs:
+  # Prometheus monitoring itself
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Alloy's own health/pipeline metrics (visible at http://localhost:12345/metrics)
+  - job_name: "alloy"
+    static_configs:
+      - targets: ["alloy:12345"]
+
+  # --- Your application targets go here ---
+  # If the app runs on your HOST machine (php artisan serve, npm run dev, mvn spring-boot:run):
+  #   use host.docker.internal:<port>
+  # If the app runs as its own container on the `observability` network:
+  #   use <container_name>:<port>
+
+  - job_name: "php-laravel-app"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:8000"]
+        labels: { service: "laravel-app", env: "local" }
+
+  - job_name: "node-app"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:3001"]
+        labels: { service: "node-app", env: "local" }
+
+  - job_name: "java-app"
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["host.docker.internal:8080"]
+        labels: { service: "java-app", env: "local" }
