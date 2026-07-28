@@ -40,15 +40,15 @@ groups:
           summary: "Disk space low on {{ $labels.instance }}"
           description: "Less than 15% free space remaining on {{ $labels.mountpoint }}."
 
-  - name: test-alert
-    rules:
-      # A deliberately trivial, always-true alert used ONLY to confirm the
-      # Prometheus -> Alertmanager -> notification pipeline works end to end.
-      # Remove this once you've confirmed a test notification arrives.
-      - alert: WiringTest
-        expr: vector(1)
-        labels:
-          severity: info
-        annotations:
-          summary: "Alerting pipeline wiring test"
-          description: "If you see this in Alertmanager/Slack, Prometheus -> Alertmanager -> notification channel is working."
+  # - name: test-alert
+  #   rules:
+  #     # A deliberately trivial, always-true alert used ONLY to confirm the
+  #     # Prometheus -> Alertmanager -> notification pipeline works end to end.
+  #     # Remove this once you've confirmed a test notification arrives.
+  #     - alert: WiringTest
+  #       expr: vector(1)
+  #       labels:
+  #         severity: info
+  #       annotations:
+  #         summary: "Alerting pipeline wiring test"
+  #         description: "If you see this in Alertmanager/Slack, Prometheus -> Alertmanager -> notification channel is working."

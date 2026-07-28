@@ -31,3 +31,6 @@ limits_config:
 compactor:
   working_directory: /loki/compactor
   retention_enabled: true
+  delete_request_store: filesystem
+  # Production deployments should use a more durable store for delete requests, such as S3. See https://grafana.com/docs/loki/latest/operations/storage/#delete-request-store for more information.
+  # delete_request_store: s3

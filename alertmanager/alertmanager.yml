@@ -28,9 +28,10 @@ receivers:
     #     text: '{{ .CommonAnnotations.description }}'
 
     # Option B: generic webhook (e.g. https://webhook.site for a throwaway test URL)
-    # webhook_configs:
-    #   - url: "https://webhook.site/REPLACE-ME"
-    #     send_resolved: true
+    webhook_configs:
+      # - url: "http://host.docker.internal:9000/" #localhost url
+      - url: "https://webhook.site/d880865a-b079-4038-8b9e-e2bf81d5c645"
+        send_resolved: true
 
     # Option C: email (needs an SMTP relay reachable from this container)
     # email_configs:

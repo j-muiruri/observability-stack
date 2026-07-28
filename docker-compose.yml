@@ -65,6 +65,7 @@ services:
     volumes:
       - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
     networks: [observability]
+    <<: *host-gateway
 
   loki:
     image: grafana/loki:3.2.1
