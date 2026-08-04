@@ -1,0 +1,11 @@
+# Copy to <service-name>.yml. Requires jmx_exporter java agent:
+#   -javaagent:/opt/jmx_exporter/jmx_prometheus_javaagent.jar=9404:/opt/jmx_exporter/config.yml
+- targets:
+    - "SERVICE_HOST:9404"
+  labels:
+    job: "java-jmx"
+    service: "SERVICE_NAME"
+    team: "TEAM_NAME"
+    env: "prod"
+    tier: "3"
+    stack: "java-jmx"

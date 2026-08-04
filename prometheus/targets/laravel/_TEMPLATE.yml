@@ -1,0 +1,11 @@
+# Copy to <service-name>.yml. App exposes /metrics route (promphp/prometheus_client_php
+# or spatie equivalent). See exporters-reference/laravel.md.
+- targets:
+    - "SERVICE_HOST:8000"
+  labels:
+    job: "laravel"
+    service: "SERVICE_NAME"
+    team: "TEAM_NAME"
+    env: "prod"
+    tier: "2"
+    stack: "php-laravel"

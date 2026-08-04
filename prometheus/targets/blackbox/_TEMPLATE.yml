@@ -1,0 +1,11 @@
+# Copy to <frontend-app-name>.yml. Use for Angular/Vue/React SPAs and any
+# public endpoint you want a synthetic uptime/TLS check on.
+- targets:
+    - "https://app.example.com"
+  labels:
+    job: "blackbox-http"
+    service: "SERVICE_NAME"
+    team: "TEAM_NAME"
+    env: "prod"
+    tier: "2"
+    stack: "frontend-spa"

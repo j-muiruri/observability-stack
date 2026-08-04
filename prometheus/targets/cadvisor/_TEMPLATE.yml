@@ -1,0 +1,11 @@
+# Copy to <docker-host-name>.yml. One cAdvisor container per Docker host,
+# monitors ALL containers on that host regardless of language/stack.
+- targets:
+    - "DOCKER_HOST:8080"
+  labels:
+    job: "cadvisor"
+    service: "HOST_NAME"
+    team: "platform"
+    env: "prod"
+    tier: "2"
+    stack: "docker-host"

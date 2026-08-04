@@ -1,0 +1,11 @@
+# Copy to <host-name>.yml. One node_exporter per bare VM/host (not needed
+# inside containers themselves — cAdvisor covers container-level stats).
+- targets:
+    - "HOST_NAME:9100"
+  labels:
+    job: "node-exporter"
+    service: "HOST_NAME"
+    team: "platform"
+    env: "prod"
+    tier: "2"
+    stack: "host"

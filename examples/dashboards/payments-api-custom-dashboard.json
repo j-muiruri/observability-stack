@@ -1,0 +1,459 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "description": "Same Prometheus datasource used by the Fleet Overview dashboard",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ],
+  "__requires": [
+    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "11.4.0" },
+    { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" }
+  ],
+  "id": null,
+  "uid": "payments-api-custom",
+  "title": "payments-api \u2014 Custom Dashboard",
+  "description": "Bespoke dashboard for payments-api, covering what the fleet-wide RED dashboard doesn't: queue depth, worker saturation, job outcomes, DB pool. Pre-filters to service=payments-api but env/team stay adjustable via URL vars passed from the Fleet Overview deep link.",
+  "tags": ["custom", "payments", "queue"],
+  "timezone": "browser",
+  "editable": true,
+  "graphTooltip": 1,
+  "style": "dark",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "links": [
+    {
+      "title": "\u2190 Fleet Overview",
+      "type": "link",
+      "url": "/d/fleet-overview-v1/fleet-overview-all-services?var-service=${service}&var-env=${env}",
+      "targetBlank": false
+    }
+  ],
+
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "${DS_PROMETHEUS}" },
+        "hide": 0,
+        "label": "Data source",
+        "refresh": 1
+      },
+      {
+        "name": "service",
+        "type": "constant",
+        "query": "payments-api",
+        "current": { "text": "payments-api", "value": "payments-api" },
+        "hide": 2,
+        "label": "Service"
+      },
+      {
+        "name": "env",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "query": { "query": "label_values(up{service=\"$service\"}, env)", "refId": "env-var" },
+        "label": "Environment",
+        "multi": false,
+        "includeAll": false,
+        "refresh": 2,
+        "sort": 1,
+        "current": { "text": "prod", "value": "prod" },
+        "hide": 0
+      },
+      {
+        "name": "queue",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "query": { "query": "label_values(rabbitmq_queue_messages{service=\"$service\", env=\"$env\"}, queue)", "refId": "queue-var" },
+        "label": "Queue",
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "refresh": 2,
+        "sort": 1,
+        "current": { "text": ["All"], "value": ["$__all"] },
+        "hide": 0
+      }
+    ]
+  },
+
+  "annotations": {
+    "list": [
+      {
+        "name": "Firing alerts for this service",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "enable": true,
+        "iconColor": "red",
+        "expr": "ALERTS{alertstate=\"firing\", service=\"$service\", env=\"$env\"}",
+        "titleFormat": "{{alertname}}",
+        "textFormat": "{{summary}}",
+        "step": "30s"
+      },
+      {
+        "name": "Deploys",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "enable": true,
+        "iconColor": "blue",
+        "expr": "changes(process_start_time_seconds{service=\"$service\", env=\"$env\"}[5m]) > 0",
+        "titleFormat": "Deploy",
+        "textFormat": "{{service}} restarted",
+        "step": "1m"
+      }
+    ]
+  },
+
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Overview",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Service Status",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "targets": [{ "expr": "up{service=\"$service\", env=\"$env\"}", "legendFormat": "up", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" } } },
+            { "type": "value", "options": { "1": { "text": "UP", "color": "green" } } }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none", "textMode": "value" }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Request Rate (req/s)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "targets": [{ "expr": "sum(rate(http_requests_total{service=\"$service\", env=\"$env\"}[5m]))", "legendFormat": "req/s", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Error Rate (%)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "targets": [
+        {
+          "expr": "100 * sum(rate(http_requests_total{service=\"$service\", env=\"$env\", status=~\"5..\"}[5m])) / sum(rate(http_requests_total{service=\"$service\", env=\"$env\"}[5m]))",
+          "legendFormat": "error %",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 5 }]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Total Queue Depth (all queues)",
+      "description": "Sum of ready messages across all queues owned by this service. A steadily climbing value means consumers can't keep up with producers.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "targets": [{ "expr": "sum(rabbitmq_queue_messages{service=\"$service\", env=\"$env\", queue=~\"$queue\"})", "legendFormat": "depth", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1000 }, { "color": "red", "value": 10000 }]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "area" }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "DB Pool Utilization (%)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+      "targets": [
+        {
+          "expr": "100 * sum(db_connections_active{service=\"$service\", env=\"$env\"}) / sum(db_connections_max{service=\"$service\", env=\"$env\"})",
+          "legendFormat": "pool %",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 70 }, { "color": "red", "value": 90 }]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Active Workers",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "targets": [{ "expr": "sum(worker_pool_active_workers{service=\"$service\", env=\"$env\"})", "legendFormat": "workers", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" }
+    },
+
+    {
+      "id": 10,
+      "type": "row",
+      "title": "Queue Health",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "panels": []
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Queue Depth by Queue",
+      "description": "Ready (unconsumed) message count per queue. A queue trending upward and not draining is the classic 'consumers falling behind producers' pattern.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "targets": [
+        { "expr": "rabbitmq_queue_messages{service=\"$service\", env=\"$env\", queue=~\"$queue\"}", "legendFormat": "{{queue}}", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never", "spanNulls": true }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max", "lastNotNull"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Message Publish vs Consume Rate",
+      "description": "If publish rate consistently exceeds consume rate, the queue depth panel to the left will keep climbing \u2014 this is the leading indicator, not the depth itself.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "targets": [
+        {
+          "expr": "sum by (queue) (rate(rabbitmq_queue_messages_published_total{service=\"$service\", env=\"$env\", queue=~\"$queue\"}[5m]))",
+          "legendFormat": "{{queue}} \u2014 publish",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (queue) (rate(rabbitmq_queue_messages_delivered_total{service=\"$service\", env=\"$env\", queue=~\"$queue\"}[5m]))",
+          "legendFormat": "{{queue}} \u2014 consume",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 0, "showPoints": "never", "spanNulls": true }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "lastNotNull"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Message Age (Oldest Unacked, seconds)",
+      "description": "Time the oldest message in each queue has been waiting. A better early-warning signal than raw depth for latency-sensitive queues.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "targets": [
+        { "expr": "rabbitmq_queue_oldest_message_age_seconds{service=\"$service\", env=\"$env\", queue=~\"$queue\"}", "legendFormat": "{{queue}}", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never", "spanNulls": true },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 60 }, { "color": "red", "value": 300 }]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["max", "lastNotNull"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Consumer Count by Queue",
+      "description": "Drops to zero consumers on a non-empty queue is a critical failure mode \u2014 workers crashed or were scaled to zero while messages kept arriving.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "targets": [
+        { "expr": "rabbitmq_queue_consumers{service=\"$service\", env=\"$env\", queue=~\"$queue\"}", "legendFormat": "{{queue}}", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never", "spanNulls": true },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["min", "lastNotNull"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+
+    {
+      "id": 20,
+      "type": "row",
+      "title": "Worker Pool & Job Outcomes",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 },
+      "panels": []
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Worker Pool Utilization",
+      "description": "Active workers vs configured pool size. Sustained near-100% means jobs queue up waiting for a free worker even if the queue itself looks healthy.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 23 },
+      "targets": [
+        { "expr": "sum(worker_pool_active_workers{service=\"$service\", env=\"$env\"})", "legendFormat": "active", "refId": "A" },
+        { "expr": "sum(worker_pool_max_workers{service=\"$service\", env=\"$env\"})", "legendFormat": "max", "refId": "B" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never", "spanNulls": true }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "max" },
+            "properties": [{ "id": "custom.lineStyle", "value": { "dash": [10, 10], "fill": "dash" } }]
+          }
+        ]
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Job Success vs Failure Rate",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 23 },
+      "targets": [
+        { "expr": "sum(rate(job_processed_total{service=\"$service\", env=\"$env\", status=\"success\"}[5m]))", "legendFormat": "success/s", "refId": "A" },
+        { "expr": "sum(rate(job_processed_total{service=\"$service\", env=\"$env\", status=\"failed\"}[5m]))", "legendFormat": "failed/s", "refId": "B" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never", "spanNulls": true }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "failed/s" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }]
+          }
+        ]
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "Job Processing Duration (p50/p95/p99)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 31 },
+      "targets": [
+        { "expr": "1000 * histogram_quantile(0.50, sum(rate(job_duration_seconds_bucket{service=\"$service\", env=\"$env\"}[5m])) by (le))", "legendFormat": "p50", "refId": "A" },
+        { "expr": "1000 * histogram_quantile(0.95, sum(rate(job_duration_seconds_bucket{service=\"$service\", env=\"$env\"}[5m])) by (le))", "legendFormat": "p95", "refId": "B" },
+        { "expr": "1000 * histogram_quantile(0.99, sum(rate(job_duration_seconds_bucket{service=\"$service\", env=\"$env\"}[5m])) by (le))", "legendFormat": "p99", "refId": "C" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 5, "showPoints": "never", "spanNulls": true }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 24,
+      "type": "timeseries",
+      "title": "DB Connection Pool \u2014 Active vs Max",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 31 },
+      "targets": [
+        { "expr": "sum(db_connections_active{service=\"$service\", env=\"$env\"})", "legendFormat": "active", "refId": "A" },
+        { "expr": "sum(db_connections_max{service=\"$service\", env=\"$env\"})", "legendFormat": "max", "refId": "B" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never", "spanNulls": true }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "max" },
+            "properties": [{ "id": "custom.lineStyle", "value": { "dash": [10, 10], "fill": "dash" } }]
+          }
+        ]
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    }
+  ]
+}

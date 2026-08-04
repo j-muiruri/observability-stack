@@ -1,0 +1,11 @@
+# Copy to <broker-name>.yml. Requires jmx_exporter agent attached to the
+# ActiveMQ JVM, or the jolokia + jmx bridge approach. See exporters-reference.
+- targets:
+    - "ACTIVEMQ_HOST:9405"
+  labels:
+    job: "activemq"
+    service: "SERVICE_NAME"
+    team: "TEAM_NAME"
+    env: "prod"
+    tier: "2"
+    stack: "activemq"

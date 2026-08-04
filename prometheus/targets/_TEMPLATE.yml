@@ -1,0 +1,24 @@
+# -----------------------------------------------------------------------------
+# TEMPLATE — copy this file to <service-name>.yml in prometheus/targets/
+# One file per service. Prometheus's file_sd_configs watches this directory
+# and picks up new/changed/removed files automatically (no restart needed).
+#
+# Required labels (validate.sh will fail the build if any are missing):
+#   service  — unique service identifier, must match across all its files/dashboards
+#   team     — owning team, used for alert routing and dashboard filtering
+#   env      — prod | staging | dev | local
+#
+# Optional but recommended:
+#   tier     — "1" for business-critical, "2"/"3" for less critical (lets you
+#              filter the fleet dashboard down to only what matters most)
+#   owner    — individual/on-call contact if different from team
+# -----------------------------------------------------------------------------
+
+- targets:
+    - "host.docker.internal:PORT"   # or "container-name:port" if on the observability network
+  labels:
+    job: "SERVICE_NAME"
+    service: "SERVICE_NAME"
+    team: "TEAM_NAME"
+    env: "prod"
+    tier: "2"

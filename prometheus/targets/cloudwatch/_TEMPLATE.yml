@@ -1,0 +1,12 @@
+# Copy to <exporter-instance>.yml. One yace/cloudwatch_exporter instance can
+# usually cover many RDS instances via its own config — this target is the
+# exporter itself, not per-DB.
+- targets:
+    - "CLOUDWATCH_EXPORTER_HOST:9106"
+  labels:
+    job: "cloudwatch-rds"
+    service: "cloudwatch-rds-metrics"
+    team: "platform"
+    env: "prod"
+    tier: "2"
+    stack: "aws-cloudwatch"

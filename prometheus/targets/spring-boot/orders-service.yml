@@ -1,0 +1,9 @@
+- targets:
+    - "orders-service:8080"
+  labels:
+    job: "spring-boot"
+    service: "orders-service"
+    team: "backend"
+    env: "prod"
+    tier: "1"
+    stack: "java-spring-boot"

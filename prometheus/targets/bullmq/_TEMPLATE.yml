@@ -1,0 +1,13 @@
+# Copy to <service-name>.yml. Requires a custom exporter process reading
+# BullMQ queue state via Bull's API and exposing Prometheus format.
+# No official exporter exists — see exporters-reference/bullmq.md for a
+# minimal reference implementation using prom-client.
+- targets:
+    - "SERVICE_HOST:9538"
+  labels:
+    job: "bullmq"
+    service: "SERVICE_NAME"
+    team: "TEAM_NAME"
+    env: "prod"
+    tier: "2"
+    stack: "bullmq"

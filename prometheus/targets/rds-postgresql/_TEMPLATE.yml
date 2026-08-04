@@ -1,0 +1,13 @@
+# Copy to <rds-instance-name>.yml. postgres_exporter runs as its own small
+# container/task (NOT on the RDS instance — no shell access there),
+# DATA_SOURCE_NAME pointed at the RDS endpoint over the network.
+- targets:
+    - "EXPORTER_HOST:9187"
+  labels:
+    job: "rds-postgresql"
+    service: "SERVICE_NAME"
+    team: "TEAM_NAME"
+    env: "prod"
+    tier: "1"
+    stack: "postgresql"
+    hosting: "aws-rds"

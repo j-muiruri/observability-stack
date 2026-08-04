@@ -1,0 +1,11 @@
+# Copy to <service-name>.yml. Requires actuator + micrometer-registry-prometheus
+# on the classpath, and: management.endpoints.web.exposure.include=prometheus
+- targets:
+    - "SERVICE_HOST:8080"
+  labels:
+    job: "spring-boot"
+    service: "SERVICE_NAME"
+    team: "TEAM_NAME"
+    env: "prod"
+    tier: "2"
+    stack: "java-spring-boot"

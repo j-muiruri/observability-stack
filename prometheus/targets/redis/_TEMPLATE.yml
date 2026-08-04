@@ -1,0 +1,11 @@
+# Copy to <redis-instance-name>.yml. Requires oliver006/redis_exporter
+# running as a sidecar, pointed at this Redis instance via --redis.addr.
+- targets:
+    - "REDIS_HOST:9121"
+  labels:
+    job: "redis"
+    service: "SERVICE_NAME"
+    team: "TEAM_NAME"
+    env: "prod"
+    tier: "2"
+    stack: "redis"

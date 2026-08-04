@@ -1,0 +1,9 @@
+- targets:
+    - "host.docker.internal:8001"
+  labels:
+    job: "laravel"
+    service: "payments-api"
+    team: "payments"
+    env: "prod"
+    tier: "1"
+    stack: "php-laravel"

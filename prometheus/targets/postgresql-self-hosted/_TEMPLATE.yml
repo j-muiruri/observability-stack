@@ -1,0 +1,13 @@
+# Copy to <db-instance-name>.yml. Requires prometheus-community/postgres_exporter
+# running alongside (same host or sidecar container) with DATA_SOURCE_NAME
+# pointed at a read-only monitoring role.
+- targets:
+    - "DB_HOST:9187"
+  labels:
+    job: "postgresql-self-hosted"
+    service: "SERVICE_NAME"
+    team: "TEAM_NAME"
+    env: "prod"
+    tier: "1"
+    stack: "postgresql"
+    hosting: "self-hosted"

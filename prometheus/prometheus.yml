@@ -34,9 +34,9 @@ scrape_configs:
         labels: { service: "laravel-app", env: "local" }
 
   - job_name: "node-app"
-    metrics_path: /metrics
+    metrics_path: /api/metrics
     static_configs:
-      - targets: ["host.docker.internal:3001"]
+      - targets: ["dbt-api:3000"]
         labels: { service: "node-app", env: "local" }
 
   - job_name: "java-app"
@@ -44,3 +44,161 @@ scrape_configs:
     static_configs:
       - targets: ["host.docker.internal:8080"]
         labels: { service: "java-app", env: "local" }
+
+  - job_name: "file-sd"           # new: everything else goes through this
+    file_sd_configs:
+      - files: ["/etc/prometheus/targets/*.yml"]
+        refresh_interval: 30s
+
+# ---- Java / Spring Boot (Actuator + Micrometer) ------------------------
+  # Requires: spring-boot-starter-actuator + micrometer-registry-prometheus
+  # Exposes:  GET /actuator/prometheus
+  - job_name: "spring-boot"
+    metrics_path: "/actuator/prometheus"
+    file_sd_configs:
+      - files: ["targets/spring-boot/*.yml"]
+        refresh_interval: 30s
+
+  # ---- Plain Java (non-Spring — JMX-based apps) ---------------------------
+  # Requires: jmx_exporter java agent attached at JVM start
+  #   -javaagent:/opt/jmx_exporter/jmx_prometheus_javaagent.jar=9404:/opt/jmx_exporter/config.yml
+  - job_name: "java-jmx"
+    file_sd_configs:
+      - files: ["targets/java-jmx/*.yml"]
+        refresh_interval: 30s
+
+  # ---- PHP (plain / non-Laravel) ------------------------------------------
+  # Requires: php-fpm_exporter (bakins/php-fpm-exporter or similar) sidecar
+  # scraping php-fpm's built-in status page, OR an app-level /metrics route
+  # using promphp/prometheus_client_php.
+  - job_name: "php"
+    file_sd_configs:
+      - files: ["targets/php/*.yml"]
+        refresh_interval: 30s
+
+  # ---- PHP-FPM pool metrics (process-level, separate from app metrics) ---
+  - job_name: "php-fpm"
+    file_sd_configs:
+      - files: ["targets/php-fpm/*.yml"]
+        refresh_interval: 30s
+
+  # ---- Laravel (via promphp/prometheus_client_php or Spatie package) -----
+  # App exposes its own /metrics route registered in routes/web.php or
+  # routes/api.php. See exporters-reference/laravel.md for setup.
+  - job_name: "laravel"
+    file_sd_configs:
+      - files: ["targets/laravel/*.yml"]
+        refresh_interval: 30s
+
+  # ---- Node.js (plain, prom-client) ---------------------------------------
+  - job_name: "nodejs"
+    file_sd_configs:
+      - files: ["targets/nodejs/*.yml"]
+        refresh_interval: 30s
+
+  # ---- NestJS (@willsoto/nestjs-prometheus, wraps prom-client) -----------
+  - job_name: "nestjs"
+    file_sd_configs:
+      - files: ["targets/nestjs/*.yml"]
+        refresh_interval: 30s
+
+  # ---- BullMQ (custom exporter — no official one; see exporters-reference) -
+  - job_name: "bullmq"
+    file_sd_configs:
+      - files: ["targets/bullmq/*.yml"]
+        refresh_interval: 30s
+
+  # ---- Redis (redis_exporter — oliver006/redis_exporter, port 9121) ------
+  - job_name: "redis"
+    file_sd_configs:
+      - files: ["targets/redis/*.yml"]
+        refresh_interval: 30s
+
+  # ---- RabbitMQ (native rabbitmq_prometheus plugin, port 15692) ----------
+  # Preferred over the older kbudde/rabbitmq_exporter: the native plugin
+  # ships with RabbitMQ 3.8+, no separate binary to manage.
+  #   rabbitmq-plugins enable rabbitmq_prometheus
+  - job_name: "rabbitmq"
+    metrics_path: "/metrics"
+    file_sd_configs:
+      - files: ["targets/rabbitmq/*.yml"]
+        refresh_interval: 30s
+
+  # ---- ActiveMQ (jmx_exporter against ActiveMQ's JMX port) ---------------
+  - job_name: "activemq"
+    file_sd_configs:
+      - files: ["targets/activemq/*.yml"]
+        refresh_interval: 30s
+
+  # ---- Self-hosted PostgreSQL (prometheus-community/postgres_exporter) ---
+  - job_name: "postgresql-self-hosted"
+    file_sd_configs:
+      - files: ["targets/postgresql-self-hosted/*.yml"]
+        refresh_interval: 30s
+
+  # ---- Self-hosted MySQL (prometheus/mysqld_exporter) ---------------------
+  - job_name: "mysql-self-hosted"
+    file_sd_configs:
+      - files: ["targets/mysql-self-hosted/*.yml"]
+        refresh_interval: 30s
+
+  # ---- AWS RDS PostgreSQL (postgres_exporter pointed at the RDS endpoint) -
+  # RDS has no shell access for a local agent, so postgres_exporter/
+  # mysqld_exporter run OUTSIDE the DB (e.g. as a small container/task)
+  # connecting over the network using a read-only monitoring user.
+  # Alternative: CloudWatch + yet-another-cloudwatch-exporter (see below).
+  - job_name: "rds-postgresql"
+    file_sd_configs:
+      - files: ["targets/rds-postgresql/*.yml"]
+        refresh_interval: 30s
+
+  # ---- AWS RDS MySQL --------------------------------------------------------
+  - job_name: "rds-mysql"
+    file_sd_configs:
+      - files: ["targets/rds-mysql/*.yml"]
+        refresh_interval: 30s
+
+  # ---- AWS CloudWatch (RDS/ELB/other AWS-native metrics) ------------------
+  # yet-another-cloudwatch-exporter (nerdswords/yace) or the older
+  # prometheus/cloudwatch_exporter. Use for RDS metrics CloudWatch tracks
+  # that aren't exposed by postgres_exporter/mysqld_exporter directly
+  # (e.g. FreeStorageSpace, ReadIOPS at the storage layer, RDS Enhanced
+  # Monitoring). Complements, doesn't replace, the DB-level exporters above.
+  - job_name: "cloudwatch-rds"
+    file_sd_configs:
+      - files: ["targets/cloudwatch/*.yml"]
+        refresh_interval: 60s
+
+  # ---- Dockerized applications — container-level metrics (cAdvisor) ------
+  # One cAdvisor per Docker host. Gives CPU/mem/network/disk per container,
+  # regardless of what's running inside (Java, PHP, Node, DB, etc). This is
+  # ADDITIVE to the app-level jobs above, not a replacement — cAdvisor sees
+  # the container from outside; app exporters see it from inside.
+  - job_name: "cadvisor"
+    file_sd_configs:
+      - files: ["targets/cadvisor/*.yml"]
+        refresh_interval: 30s
+
+  # ---- Host-level metrics (node_exporter) — one per VM/bare host ----------
+  - job_name: "node-exporter"
+    file_sd_configs:
+      - files: ["targets/node-exporter/*.yml"]
+        refresh_interval: 30s
+
+  # ---- Blackbox exporter — synthetic uptime/TLS checks -------------------
+  # Use this for frontend SPAs (Angular/Vue/React) and anything without a
+  # scrapeable /metrics endpoint: HTTP 200 checks, TLS cert expiry, DNS.
+  - job_name: "blackbox-http"
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    file_sd_configs:
+      - files: ["targets/blackbox/*.yml"]
+        refresh_interval: 60s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115   # the blackbox exporter itself
