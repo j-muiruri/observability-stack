@@ -36,6 +36,7 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning
     networks: [observability]
     depends_on: [prometheus, loki, tempo]
+    user: "1000:1000"   # Grafana runs as UID 472 by default, but Docker Desktop on Mac/Windows maps this to 1000
 
   prometheus:
     image: prom/prometheus:v2.55.1
