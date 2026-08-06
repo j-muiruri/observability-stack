@@ -312,6 +312,20 @@ EOF
     fi
 fi
 
+# ----------------------------------------------------------------------
+# 9. Configure .File Permissions for Laravel Storage & Logs
+# ----------------------------------------------------------------------
+
+echo "==> Creating storage and bootstrap/cache directories if they don't exist..."
+mkdir -p storage/framework/cache/data
+mkdir -p bootstrap/cache
+
+echo "==> Change ownership to web server user (www-data)"
+chown -R www-data:www-data storage bootstrap/cache
+
+echo "==> Setting permissions for storage and logs..."
+chmod -R 775 storage bootstrap/cache
+
 echo "----------------------------------------------------------------------"
 echo "Success! Laravel project has been instrumented."
 echo "----------------------------------------------------------------------"
