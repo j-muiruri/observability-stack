@@ -24,36 +24,78 @@ else
     echo "--> Redis Server is already installed."
 fi
 
-# 0b. Helper to install PECL / System PHP extensions
-install_php_extension() {
+# 0b. Helper to dynamically detect PHP versions and install extensions across ALL versions
+install_php_extension_all_versions() {
     local ext_name=$1
-    if ! php -m | grep -i -q "^${ext_name}$"; then
-        echo "--> Installing PHP extension: ${ext_name}..."
-        if [ "$OS_TYPE" = "Linux" ]; then
-            sudo apt-get update -y
-            if sudo apt-get install -y "php-${ext_name}" 2>/dev/null; then
-                echo "--> Installed php-${ext_name} via apt."
-            else
-                sudo apt-get install -y php-dev php-pear zlib1g-dev
-                sudo pecl install "$ext_name" || true
-                
-                PHP_VER=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')
-                CONF_DIR="/etc/php/${PHP_VER}/cli/conf.d"
-                if [ -d "$CONF_DIR" ]; then
-                    echo "extension=${ext_name}.so" | sudo tee "${CONF_DIR}/20-${ext_name}.ini" > /dev/null
-                fi
-            fi
-        elif [ "$OS_TYPE" = "Darwin" ]; then
-            pecl install "$ext_name" || true
+    echo "--> Processing PHP extension '${ext_name}' across all installed PHP versions..."
+
+    if [ "$OS_TYPE" = "Linux" ]; then
+        # Ensure build tools are present
+        sudo apt-get update -y
+        sudo apt-get install -y php-pear autoconf build-essential zlib1g-dev re2c
+
+        # Find all PHP versions installed under /etc/php/
+        PHP_VERSIONS=$(ls /etc/php/ 2>/dev/null || true)
+
+        if [ -z "$PHP_VERSIONS" ]; then
+            # Fallback to active system PHP if directory structure is non-standard
+            PHP_VERSIONS=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')
         fi
-    else
-        echo "--> PHP extension '${ext_name}' is already enabled."
+
+        for VER in $PHP_VERSIONS; do
+            echo "---> Checking PHP ${VER} for extension ${ext_name}..."
+
+            # Ensure php-dev for this specific version is installed
+            sudo apt-get install -y "php${VER}-dev" "php${VER}-xml" 2>/dev/null || true
+
+            # Check if apt extension package exists first
+            if sudo apt-get install -y "php${VER}-${ext_name}" 2>/dev/null; then
+                echo "---> Installed php${VER}-${ext_name} via apt."
+            else
+                # Fallback: Compile from PECL source for this specific version
+                echo "---> Compiling ${ext_name} specifically for PHP ${VER}..."
+                
+                BUILD_DIR=$(mktemp -d)
+                (
+                    cd "$BUILD_DIR"
+                    pecl download "$ext_name" >/dev/null 2>&1 || true
+                    TAR_FILE=$(ls "${ext_name}-"*.tgz 2>/dev/null | head -n 1)
+                    
+                    if [ -n "$TAR_FILE" ]; then
+                        tar -xzf "$TAR_FILE"
+                        cd "${ext_name}-"*
+                        
+                        # Target exact PHP version tooling
+                        "phpize${VER}" --clean >/dev/null 2>&1 || true
+                        "phpize${VER}"
+                        ./configure --with-php-config="php-config${VER}"
+                        make -j"$(nproc)"
+                        sudo make install
+
+                        # Ensure configuration link/ini exists
+                        MODS_DIR="/etc/php/${VER}/mods-available"
+                        INI_FILE="${MODS_DIR}/${ext_name}.ini"
+                        if [ -d "$MODS_DIR" ]; then
+                            echo "extension=${ext_name}.so" | sudo tee "$INI_FILE" > /dev/null
+                            sudo phpenmod -v "$VER" "$ext_name" 2>/dev/null || true
+                        fi
+                    else
+                        echo "---> Warning: Could not download PECL package for ${ext_name}"
+                    fi
+                )
+                rm -rf "$BUILD_DIR"
+            fi
+        done
+
+    elif [ "$OS_TYPE" = "Darwin" ]; then
+        # macOS handling via PECL
+        pecl install "$ext_name" || true
     fi
 }
 
-# Install OpenTelemetry & Redis PHP extensions
-install_php_extension "opentelemetry"
-install_php_extension "redis"
+# Install OpenTelemetry & Redis PHP extensions across all installed PHP versions
+install_php_extension_all_versions "opentelemetry"
+install_php_extension_all_versions "redis"
 
 # ----------------------------------------------------------------------
 # 1. Directory & Environment Check
@@ -327,5 +369,5 @@ echo "==> Setting permissions for storage and logs..."
 chmod -R 775 storage bootstrap/cache
 
 echo "----------------------------------------------------------------------"
-echo "Success! Laravel project has been instrumented."
+echo "Success! Laravel project has been instrumented across all PHP versions."
 echo "----------------------------------------------------------------------"
