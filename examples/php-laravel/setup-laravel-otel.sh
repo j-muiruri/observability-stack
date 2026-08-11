@@ -3,6 +3,7 @@ set -e
 
 # ----------------------------------------------------------------------
 # 0. Automate Redis Server & PHP Extension Installations (Linux / macOS)
+#    — Only PHP 8.2 and above
 # ----------------------------------------------------------------------
 echo "==> Checking and installing system dependencies (Redis & PHP extensions)..."
 
@@ -24,78 +25,82 @@ else
     echo "--> Redis Server is already installed."
 fi
 
-# 0b. Helper to dynamically detect PHP versions and install extensions across ALL versions
-install_php_extension_all_versions() {
+# 0b. Install PHP extensions for PHP 8.2+ ONLY
+install_php_extensions_82_plus() {
     local ext_name=$1
-    echo "--> Processing PHP extension '${ext_name}' across all installed PHP versions..."
+    echo "--> Processing PHP extension '${ext_name}' for PHP 8.2+..."
 
     if [ "$OS_TYPE" = "Linux" ]; then
-        # Ensure build tools are present
         sudo apt-get update -y
         sudo apt-get install -y php-pear autoconf build-essential zlib1g-dev re2c
 
-        # Find all PHP versions installed under /etc/php/
-        PHP_VERSIONS=$(ls /etc/php/ 2>/dev/null || true)
+        PHP_VERSIONS=$(ls /etc/php/ 2>/dev/null | awk -F. '$1 >= 8 && $2 >= 2' || true)
 
         if [ -z "$PHP_VERSIONS" ]; then
-            # Fallback to active system PHP if directory structure is non-standard
-            PHP_VERSIONS=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')
+            ACTIVE_VER=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')
+            MAJOR=$(echo "$ACTIVE_VER" | cut -d. -f1)
+            MINOR=$(echo "$ACTIVE_VER" | cut -d. -f2)
+            if [ "$MAJOR" -gt 8 ] || ([ "$MAJOR" -eq 8 ] && [ "$MINOR" -ge 2 ]); then
+                PHP_VERSIONS="$ACTIVE_VER"
+            else
+                echo "--> WARNING: No PHP 8.2+ found. Active PHP is ${ACTIVE_VER}. Skipping extension install."
+                return 0
+            fi
         fi
 
         for VER in $PHP_VERSIONS; do
-            echo "---> Checking PHP ${VER} for extension ${ext_name}..."
-
-            # Ensure php-dev for this specific version is installed
+            echo "---> Installing ${ext_name} for PHP ${VER}..."
             sudo apt-get install -y "php${VER}-dev" "php${VER}-xml" 2>/dev/null || true
 
-            # Check if apt extension package exists first
             if sudo apt-get install -y "php${VER}-${ext_name}" 2>/dev/null; then
                 echo "---> Installed php${VER}-${ext_name} via apt."
-            else
-                # Fallback: Compile from PECL source for this specific version
-                echo "---> Compiling ${ext_name} specifically for PHP ${VER}..."
-                
-                BUILD_DIR=$(mktemp -d)
-                (
-                    cd "$BUILD_DIR"
-                    pecl download "$ext_name" >/dev/null 2>&1 || true
-                    TAR_FILE=$(ls "${ext_name}-"*.tgz 2>/dev/null | head -n 1)
-                    
-                    if [ -n "$TAR_FILE" ]; then
-                        tar -xzf "$TAR_FILE"
-                        cd "${ext_name}-"*
-                        
-                        # Target exact PHP version tooling
-                        "phpize${VER}" --clean >/dev/null 2>&1 || true
-                        "phpize${VER}"
-                        ./configure --with-php-config="php-config${VER}"
-                        make -j"$(nproc)"
-                        sudo make install
-
-                        # Ensure configuration link/ini exists
-                        MODS_DIR="/etc/php/${VER}/mods-available"
-                        INI_FILE="${MODS_DIR}/${ext_name}.ini"
-                        if [ -d "$MODS_DIR" ]; then
-                            echo "extension=${ext_name}.so" | sudo tee "$INI_FILE" > /dev/null
-                            sudo phpenmod -v "$VER" "$ext_name" 2>/dev/null || true
-                        fi
-                    else
-                        echo "---> Warning: Could not download PECL package for ${ext_name}"
-                    fi
-                )
-                rm -rf "$BUILD_DIR"
+                continue
             fi
+
+            echo "---> Compiling ${ext_name} from PECL for PHP ${VER}..."
+            BUILD_DIR=$(mktemp -d)
+            (
+                cd "$BUILD_DIR"
+                pecl download "$ext_name" >/dev/null 2>&1 || true
+                TAR_FILE=$(ls "${ext_name}-"*.tgz 2>/dev/null | head -n 1)
+
+                if [ -n "$TAR_FILE" ]; then
+                    tar -xzf "$TAR_FILE"
+                    cd "${ext_name}-"*
+
+                    "phpize${VER}" --clean >/dev/null 2>&1 || true
+                    "phpize${VER}"
+                    ./configure --with-php-config="php-config${VER}"
+                    make -j"$(nproc)"
+                    sudo make install
+
+                    MODS_DIR="/etc/php/${VER}/mods-available"
+                    INI_FILE="${MODS_DIR}/${ext_name}.ini"
+                    if [ -d "$MODS_DIR" ]; then
+                        echo "extension=${ext_name}.so" | sudo tee "$INI_FILE" > /dev/null
+                        sudo phpenmod -v "$VER" "$ext_name" 2>/dev/null || true
+                    fi
+                else
+                    echo "---> Warning: Could not download PECL package for ${ext_name}"
+                fi
+            )
+            rm -rf "$BUILD_DIR"
         done
 
     elif [ "$OS_TYPE" = "Darwin" ]; then
-        # macOS handling via PECL
-        pecl install "$ext_name" || true
+        ACTIVE_VER=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')
+        MAJOR=$(echo "$ACTIVE_VER" | cut -d. -f1)
+        MINOR=$(echo "$ACTIVE_VER" | cut -d. -f2)
+        if [ "$MAJOR" -gt 8 ] || ([ "$MAJOR" -eq 8 ] && [ "$MINOR" -ge 2 ]); then
+            pecl install "$ext_name" || true
+        else
+            echo "--> macOS: Active PHP ${ACTIVE_VER} is below 8.2. Skipping."
+        fi
     fi
 }
 
-# Install OpenTelemetry & Redis PHP extensions across all installed PHP versions
-install_php_extension_all_versions "opentelemetry"
-install_php_extension_all_versions "redis"
+install_php_extensions_82_plus "opentelemetry"
+install_php_extensions_82_plus "redis"
 
 # ----------------------------------------------------------------------
 # 1. Directory & Environment Check
@@ -117,7 +122,7 @@ fi
 echo "==> Setting up OpenTelemetry & Prometheus instrumentation in: $(pwd)"
 
 # ----------------------------------------------------------------------
-# 2. Update & Install Composer Packages (Includes Predis)
+# 2. Update & Install Composer Packages
 # ----------------------------------------------------------------------
 echo "==> Updating Composer packages..."
 composer update -vvv
@@ -135,7 +140,7 @@ echo "==> Creating Middleware and Controller files..."
 
 mkdir -p app/Http/Middleware app/Http/Controllers
 
-# 3a. Metrics Middleware Stub
+# 3a. Metrics Middleware (request counting)
 cat << 'EOF' > app/Http/Middleware/MetricsMiddleware.php
 <?php
 
@@ -150,10 +155,9 @@ class MetricsMiddleware
     public function handle(Request $request, Closure $next)
     {
         $start = microtime(true);
-
         $response = $next($request);
-
         $duration = microtime(true) - $start;
+
         $route = optional($request->route())->uri() ?? $request->path();
         $status = (string) $response->getStatusCode();
 
@@ -179,7 +183,7 @@ class MetricsMiddleware
 }
 EOF
 
-# 3b. Request ID Middleware Stub
+# 3b. Request ID Middleware
 cat << 'EOF' > app/Http/Middleware/RequestIdMiddleware.php
 <?php
 
@@ -221,7 +225,32 @@ class RequestIdMiddleware
 }
 EOF
 
-# 3c. Metrics Controller Stub
+# 3c. Metrics Auth Middleware (Bearer token protection)
+cat << 'EOF' > app/Http/Middleware/MetricsAuth.php
+<?php
+
+namespace App\Http\Middleware;
+
+use Closure;
+use Illuminate\Http\Request;
+
+class MetricsAuth
+{
+    public function handle(Request $request, Closure $next)
+    {
+        $auth = $request->header('Authorization', '');
+        $token = str_replace('Bearer ', '', $auth);
+
+        if ($token !== env('METRICS_TOKEN')) {
+            abort(403, 'Forbidden');
+        }
+
+        return $next($request);
+    }
+}
+EOF
+
+# 3d. Metrics Controller
 cat << 'EOF' > app/Http/Controllers/MetricsController.php
 <?php
 
@@ -270,14 +299,15 @@ use Prometheus\\CollectorRegistry;\nuse Prometheus\\Storage\\Redis;' "$PROVIDER_
 fi
 
 # ----------------------------------------------------------------------
-# 5. Register Middleware (Detect Laravel 11 vs Older)
+# 5. Register Middleware & Alias (Detect Laravel 11 vs Older)
 # ----------------------------------------------------------------------
 if [ -f "bootstrap/app.php" ] && grep -q "withMiddleware" "bootstrap/app.php"; then
     echo "==> Registering Middleware in bootstrap/app.php (Laravel 11+)..."
     BOOTSTRAP_FILE="bootstrap/app.php"
     
     if ! grep -q "MetricsMiddleware" "$BOOTSTRAP_FILE"; then
-        sed -i '/->withMiddleware(function (Middleware $middleware) {/a \        $middleware->append(\\App\\Http\\Middleware\\MetricsMiddleware::class);\n        $middleware->prepend(\\App\\Http\\Middleware\\RequestIdMiddleware::class);' "$BOOTSTRAP_FILE"
+        # Replace the withMiddleware block to include alias + middleware
+        sed -i '/->withMiddleware(function (Middleware $middleware) {/c\        ->withMiddleware(function (Middleware $middleware) {\n            $middleware->alias([\n                '\''metrics.auth'\'' => \\App\\Http\\Middleware\\MetricsAuth::class,\n            ]);\n            $middleware->append(\\App\\Http\\Middleware\\MetricsMiddleware::class);\n            $middleware->prepend(\\App\\Http\\Middleware\\RequestIdMiddleware::class);' "$BOOTSTRAP_FILE"
     fi
 elif [ -f "app/Http/Kernel.php" ]; then
     echo "==> Registering Middleware in app/Http/Kernel.php (Laravel 10 or below)..."
@@ -286,10 +316,14 @@ elif [ -f "app/Http/Kernel.php" ]; then
     if ! grep -q "MetricsMiddleware" "$KERNEL_FILE"; then
         sed -i '/protected \$middleware = \[/a \        \\App\\Http\\Middleware\\RequestIdMiddleware::class,\n        \\App\\Http\\Middleware\\MetricsMiddleware::class,' "$KERNEL_FILE"
     fi
+    
+    if ! grep -q "metrics.auth" "$KERNEL_FILE"; then
+        sed -i '/protected \$routeMiddleware = \[/a \        '\''metrics.auth'\'' => \\App\\Http\\Middleware\\MetricsAuth::class,' "$KERNEL_FILE"
+    fi
 fi
 
 # ----------------------------------------------------------------------
-# 6. Add /metrics Route
+# 6. Add /metrics Route WITH middleware
 # ----------------------------------------------------------------------
 echo "==> Adding /metrics route to routes/web.php..."
 ROUTES_FILE="routes/web.php"
@@ -297,7 +331,8 @@ ROUTES_FILE="routes/web.php"
 if ! grep -q "MetricsController" "$ROUTES_FILE"; then
     cat << 'EOF' >> routes/web.php
 
-Route::get('/metrics', [\App\Http\Controllers\MetricsController::class, 'index']);
+Route::get('/metrics', [\App\Http\Controllers\MetricsController::class, 'index'])
+    ->middleware('metrics.auth');
 EOF
 fi
 
@@ -313,33 +348,36 @@ if [ -f "$LOGGING_FILE" ] && ! grep -q "'json' =>" "$LOGGING_FILE"; then
 fi
 
 # ----------------------------------------------------------------------
-# 8. Configure .env (Daily + Stack + OTEL + Redis Auth)
+# 8. Configure .env
 # ----------------------------------------------------------------------
 echo "==> Updating .env parameters..."
 ENV_FILE=".env"
 
 if [ -f "$ENV_FILE" ]; then
-    # Set LOG_CHANNEL=daily
     if grep -q "^LOG_CHANNEL=" "$ENV_FILE"; then
         sed -i 's/^LOG_CHANNEL=.*/LOG_CHANNEL=daily/' "$ENV_FILE"
     else
         echo "LOG_CHANNEL=daily" >> "$ENV_FILE"
     fi
 
-    # Set LOG_STACK=single,json
     if grep -q "^LOG_STACK=" "$ENV_FILE"; then
         sed -i 's/^LOG_STACK=.*/LOG_STACK=single,json/' "$ENV_FILE"
     else
         echo "LOG_STACK=single,json" >> "$ENV_FILE"
     fi
 
-    # Ensure REDIS_HOST, REDIS_PORT, REDIS_CLIENT exist
     grep -q "^REDIS_CLIENT=" "$ENV_FILE" || echo "REDIS_CLIENT=phpredis" >> "$ENV_FILE"
     grep -q "^REDIS_HOST=" "$ENV_FILE" || echo "REDIS_HOST=127.0.0.1" >> "$ENV_FILE"
     grep -q "^REDIS_PORT=" "$ENV_FILE" || echo "REDIS_PORT=6379" >> "$ENV_FILE"
     grep -q "^REDIS_PASSWORD=" "$ENV_FILE" || echo "REDIS_PASSWORD=null" >> "$ENV_FILE"
 
-    # Append OpenTelemetry env variables if not present
+    if ! grep -q "^METRICS_TOKEN=" "$ENV_FILE"; then
+        echo "" >> "$ENV_FILE"
+        echo "# Prometheus Metrics Auth Token" >> "$ENV_FILE"
+        echo "METRICS_TOKEN=change-me" >> "$ENV_FILE"
+        echo "--> WARNING: METRICS_TOKEN set to default 'change-me'. Update it in .env and prometheus.yml!"
+    fi
+
     if ! grep -q "OTEL_PHP_AUTOLOAD_ENABLED" "$ENV_FILE"; then
         cat << 'EOF' >> "$ENV_FILE"
 
@@ -355,19 +393,19 @@ EOF
 fi
 
 # ----------------------------------------------------------------------
-# 9. Configure .File Permissions for Laravel Storage & Logs
+# 9. File Permissions
 # ----------------------------------------------------------------------
-
-echo "==> Creating storage and bootstrap/cache directories if they don't exist..."
+echo "==> Setting permissions..."
 mkdir -p storage/framework/cache/data
 mkdir -p bootstrap/cache
-
-echo "==> Change ownership to web server user (www-data)"
 chown -R www-data:www-data storage bootstrap/cache
-
-echo "==> Setting permissions for storage and logs..."
 chmod -R 775 storage bootstrap/cache
 
 echo "----------------------------------------------------------------------"
-echo "Success! Laravel project has been instrumented across all PHP versions."
+echo "Success! Laravel project instrumented for PHP 8.2+."
+echo ""
+echo "IMPORTANT:"
+echo "  1. Update METRICS_TOKEN in .env"
+echo "  2. Set the same token in prometheus.yml bearer_token"
+echo "  3. Run: php artisan config:clear && php artisan cache:clear"
 echo "----------------------------------------------------------------------"
