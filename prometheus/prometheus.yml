@@ -20,7 +20,11 @@ scrape_configs:
   - job_name: "alloy"
     static_configs:
       - targets: ["alloy:12345"]
-
+  # Server  Monitoring (node_exporter) — one per VM/bare host
+  - job_name: 'node_exporter'
+    static_configs:
+      - targets: ['172.31.91.244:9100']  # Use host IP if Prometheus is in Docker
+      
   # --- Your application targets go here ---
   # If the app runs on your HOST machine (php artisan serve, npm run dev, mvn spring-boot:run):
   #   use host.docker.internal:<port>
