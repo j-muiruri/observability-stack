@@ -2,12 +2,24 @@
 set -e
 
 # ----------------------------------------------------------------------
+# Helper Functions
+# ----------------------------------------------------------------------
+OS_TYPE="$(uname -s)"
+
+# Cross-platform sed inline edit function (works on Linux & macOS)
+sed_inplace() {
+    if [ "$OS_TYPE" = "Darwin" ]; then
+        sed -i '' "$@"
+    else
+        sed -i "$@"
+    fi
+}
+
+# ----------------------------------------------------------------------
 # 0. Automate Redis Server & PHP Extension Installations (Linux / macOS)
 #    — Only PHP 8.2 and above
 # ----------------------------------------------------------------------
 echo "==> Checking and installing system dependencies (Redis & PHP extensions)..."
-
-OS_TYPE="$(uname -s)"
 
 # 0a. Install Redis Server if not present
 if ! command -v redis-cli &> /dev/null; then
@@ -273,17 +285,17 @@ class MetricsController extends Controller
 EOF
 
 # ----------------------------------------------------------------------
-# 4. Inject CollectorRegistry into AppServiceProvider
+# 4. Inject Prometheus Adapter & CollectorRegistry into AppServiceProvider
 # ----------------------------------------------------------------------
 echo "==> Updating AppServiceProvider.php..."
 PROVIDER_FILE="app/Providers/AppServiceProvider.php"
 
 if [ -f "$PROVIDER_FILE" ]; then
     if ! grep -q "CollectorRegistry" "$PROVIDER_FILE"; then
-        sed -i '/namespace App\\Providers;/a \
-use Prometheus\\CollectorRegistry;\nuse Prometheus\\Storage\\Redis;' "$PROVIDER_FILE"
+        sed_inplace '/namespace App\\Providers;/a \
+use Prometheus\\CollectorRegistry;\nuse Prometheus\\Storage\\Adapter;\nuse Prometheus\\Storage\\Redis;' "$PROVIDER_FILE"
 
-        SINGLETON_CODE="        \$this->app->singleton(CollectorRegistry::class, function () {\n            Redis::setDefaultOptions([\n                'host' => config('database.redis.default.host', '127.0.0.1'),\n                'port' => config('database.redis.default.port', 6379),\n                'password' => config('database.redis.default.password', null),\n                'database' => 0,\n                'timeout' => 0.1,\n                'read_timeout' => 10,\n                'persistent_connections' => false,\n            ]);\n            return new CollectorRegistry(new Redis());\n        });"
+        SINGLETON_CODE="        \$this->app->singleton(Adapter::class, function () {\n            Redis::setDefaultOptions([\n                'host' => config('database.redis.default.host', '127.0.0.1'),\n                'port' => config('database.redis.default.port', 6379),\n                'password' => config('database.redis.default.password', null),\n                'database' => 0,\n                'timeout' => 0.1,\n                'read_timeout' => 10,\n                'persistent_connections' => false,\n            ]);\n            return new Redis();\n        });\n\n        \$this->app->singleton(CollectorRegistry::class, function (\$app) {\n            return new CollectorRegistry(\$app->make(Adapter::class));\n        });"
 
         awk -v code="$SINGLETON_CODE" '
           /public function register/ { found=1 }
@@ -306,19 +318,22 @@ if [ -f "bootstrap/app.php" ] && grep -q "withMiddleware" "bootstrap/app.php"; t
     BOOTSTRAP_FILE="bootstrap/app.php"
     
     if ! grep -q "MetricsMiddleware" "$BOOTSTRAP_FILE"; then
-        # Replace the withMiddleware block to include alias + middleware
-        sed -i '/->withMiddleware(function (Middleware $middleware) {/c\        ->withMiddleware(function (Middleware $middleware) {\n            $middleware->alias([\n                '\''metrics.auth'\'' => \\App\\Http\\Middleware\\MetricsAuth::class,\n            ]);\n            $middleware->append(\\App\\Http\\Middleware\\MetricsMiddleware::class);\n            $middleware->prepend(\\App\\Http\\Middleware\\RequestIdMiddleware::class);' "$BOOTSTRAP_FILE"
+        sed_inplace '/->withMiddleware(function (Middleware $middleware) {/c\        ->withMiddleware(function (Middleware $middleware) {\n            $middleware->alias([\n                '\''metrics.auth'\'' => \\App\\Http\\Middleware\\MetricsAuth::class,\n            ]);\n            $middleware->append(\\App\\Http\\Middleware\\MetricsMiddleware::class);\n            $middleware->prepend(\\App\\Http\\Middleware\\RequestIdMiddleware::class);' "$BOOTSTRAP_FILE"
     fi
 elif [ -f "app/Http/Kernel.php" ]; then
     echo "==> Registering Middleware in app/Http/Kernel.php (Laravel 10 or below)..."
     KERNEL_FILE="app/Http/Kernel.php"
     
     if ! grep -q "MetricsMiddleware" "$KERNEL_FILE"; then
-        sed -i '/protected \$middleware = \[/a \        \\App\\Http\\Middleware\\RequestIdMiddleware::class,\n        \\App\\Http\\Middleware\\MetricsMiddleware::class,' "$KERNEL_FILE"
+        sed_inplace '/protected \$middleware = \[/a \        \\App\\Http\\Middleware\\RequestIdMiddleware::class,\n        \\App\\Http\\Middleware\\MetricsMiddleware::class,' "$KERNEL_FILE"
     fi
     
     if ! grep -q "metrics.auth" "$KERNEL_FILE"; then
-        sed -i '/protected \$routeMiddleware = \[/a \        '\''metrics.auth'\'' => \\App\\Http\\Middleware\\MetricsAuth::class,' "$KERNEL_FILE"
+        if grep -q "\$middlewareAliases" "$KERNEL_FILE"; then
+            sed_inplace '/protected \$middlewareAliases = \[/a \        '\''metrics.auth'\'' => \\App\\Http\\Middleware\\MetricsAuth::class,' "$KERNEL_FILE"
+        elif grep -q "\$routeMiddleware" "$KERNEL_FILE"; then
+            sed_inplace '/protected \$routeMiddleware = \[/a \        '\''metrics.auth'\'' => \\App\\Http\\Middleware\\MetricsAuth::class,' "$KERNEL_FILE"
+        fi
     fi
 fi
 
@@ -344,7 +359,7 @@ LOGGING_FILE="config/logging.php"
 
 if [ -f "$LOGGING_FILE" ] && ! grep -q "'json' =>" "$LOGGING_FILE"; then
     JSON_CHANNEL="        'json' => [\n            'driver' => 'monolog',\n            'handler' => Monolog\\\\Handler\\\\StreamHandler::class,\n            'with' => ['stream' => storage_path('logs/laravel.json.log')],\n            'formatter' => Monolog\\\\Formatter\\\\JsonFormatter::class,\n        ],"
-    sed -i "/'channels' => \[/a $JSON_CHANNEL" "$LOGGING_FILE"
+    sed_inplace "/'channels' => \[/a $JSON_CHANNEL" "$LOGGING_FILE"
 fi
 
 # ----------------------------------------------------------------------
@@ -355,13 +370,13 @@ ENV_FILE=".env"
 
 if [ -f "$ENV_FILE" ]; then
     if grep -q "^LOG_CHANNEL=" "$ENV_FILE"; then
-        sed -i 's/^LOG_CHANNEL=.*/LOG_CHANNEL=daily/' "$ENV_FILE"
+        sed_inplace 's/^LOG_CHANNEL=.*/LOG_CHANNEL=daily/' "$ENV_FILE"
     else
         echo "LOG_CHANNEL=daily" >> "$ENV_FILE"
     fi
 
     if grep -q "^LOG_STACK=" "$ENV_FILE"; then
-        sed -i 's/^LOG_STACK=.*/LOG_STACK=single,json/' "$ENV_FILE"
+        sed_inplace 's/^LOG_STACK=.*/LOG_STACK=single,json/' "$ENV_FILE"
     else
         echo "LOG_STACK=single,json" >> "$ENV_FILE"
     fi
@@ -393,13 +408,17 @@ EOF
 fi
 
 # ----------------------------------------------------------------------
-# 9. File Permissions
+# 9. File Permissions & Cache Clear
 # ----------------------------------------------------------------------
-echo "==> Setting permissions..."
+echo "==> Setting permissions and clearing framework cache..."
 mkdir -p storage/framework/cache/data
 mkdir -p bootstrap/cache
-chown -R www-data:www-data storage bootstrap/cache
+chown -R www-data:www-data storage bootstrap/cache 2>/dev/null || true
 chmod -R 775 storage bootstrap/cache
+
+php artisan config:clear || true
+php artisan route:clear || true
+php artisan cache:clear || true
 
 echo "----------------------------------------------------------------------"
 echo "Success! Laravel project instrumented for PHP 8.2+."
@@ -407,5 +426,5 @@ echo ""
 echo "IMPORTANT:"
 echo "  1. Update METRICS_TOKEN in .env"
 echo "  2. Set the same token in prometheus.yml bearer_token"
-echo "  3. Run: php artisan config:clear && php artisan cache:clear"
+echo "  3. Verify /metrics endpoint responds with 200 OK using Bearer Auth"
 echo "----------------------------------------------------------------------"
