@@ -31,7 +31,7 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=admin
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_FEATURE_TOGGLES_ENABLE=traceqlEditor
-      - GF_SERVER_ROOT_URL="https:///monitoring.ims.co.ke/grafana"
+      - GF_SERVER_ROOT_URL="https:///monitoring.ims.co.ke"
       # - GF_SERVER_SERVE_FROM_SUB_PATH: "true"
     volumes:
       - grafana-data:/var/lib/grafana
@@ -53,9 +53,10 @@ services:
     ports:
       - "9090:9090"
     volumes:
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
-      - prometheus-data:/prometheus
+    - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    - ./prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+    - ./prometheus/targets:/etc/prometheus/targets:ro
+    - prometheus-data:/prometheus
     networks: [observability]
     <<: *host-gateway
 
