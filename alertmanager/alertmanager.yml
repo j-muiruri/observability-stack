@@ -1,45 +1,66 @@
 global:
   resolve_timeout: 5m
+  # Global SMTP Configuration for Email
+  smtp_smarthost: "smtp.gmail.com:587"
+  smtp_from: "alerts@example.com"
+  smtp_auth_username: "alerts@example.com"
+  smtp_auth_password: "your-app-password"
+  smtp_require_tls: true
 
 route:
-  receiver: "default"
+  receiver: "email-only"
   group_by: ["alertname", "service"]
   group_wait: 30s
   group_interval: 5m
   repeat_interval: 4h
   routes:
+    # Route 1: Critical Alerts -> Discord + SMS
     - matchers:
         - severity="critical"
-      receiver: "default"
+      receiver: "critical-sms-discord"
       repeat_interval: 1h
 
+    # Route 2: Warning Alerts -> Discord + Email
+    - matchers:
+        - severity="warning"
+      receiver: "warning-discord-email"
+      repeat_interval: 2h
+
+    # Route 3: Info Alerts -> Email Only
+    - matchers:
+        - severity="info"
+      receiver: "email-only"
+      repeat_interval: 12h
+
 receivers:
-  - name: "default"
-    # --- Local testing default: logs to Alertmanager's own UI at http://localhost:9093 ---
-    # This receiver intentionally does nothing external, so the stack works offline.
-    # Replace/extend it with one of the options below once you're ready.
-
-    # Option A: Slack (uncomment and set your webhook URL)
-    # slack_configs:
-    #   - api_url: "https://hooks.slack.com/services/XXX/YYY/ZZZ"
-    #     channel: "#alerts"
-    #     send_resolved: true
-    #     title: '{{ .CommonAnnotations.summary }}'
-    #     text: '{{ .CommonAnnotations.description }}'
-
-    # Option B: generic webhook (e.g. https://webhook.site for a throwaway test URL)
-    webhook_configs:
-      # - url: "http://host.docker.internal:9000/" #localhost url
-      - url: "https://webhook.site/d880865a-b079-4038-8b9e-e2bf81d5c645"
+  - name: "email-only"
+    email_configs:
+      - to: "devops-team@example.com"
         send_resolved: true
 
-    # Option C: email (needs an SMTP relay reachable from this container)
-    # email_configs:
-    #   - to: "you@example.com"
-    #     from: "alertmanager@local.test"
-    #     smarthost: "smtp.example.com:587"
-    #     auth_username: "you@example.com"
-    #     auth_password: "app-password"
+  - name: "warning-discord-email"
+    email_configs:
+      - to: "devops-team@example.com"
+        send_resolved: true
+    # Discord supports Slack-compatible incoming webhooks by appending /slack
+    slack_configs:
+      - api_url: "https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN/slack"
+        channel: "#alerts-warning"
+        send_resolved: true
+        title: '[{{ .Status | toUpper }}] {{ .CommonAnnotations.summary }}'
+        text: '{{ .CommonAnnotations.description }}'
+
+  - name: "critical-sms-discord"
+    slack_configs:
+      - api_url: "https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN/slack"
+        channel: "#alerts-critical"
+        send_resolved: true
+        title: '🚨 [CRITICAL] {{ .CommonAnnotations.summary }}'
+        text: '{{ .CommonAnnotations.description }}'
+    webhook_configs:
+      # Direct webhook pointing to your SMS Gateway (e.g., Twilio / SMS provider relay)
+      - url: "https://api.example-sms-gateway.com/v1/send-sms"
+        send_resolved: false
 
 inhibit_rules:
   - source_matchers: ["severity=critical"]
