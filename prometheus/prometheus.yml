@@ -31,13 +31,11 @@ scrape_configs:
   # If the app runs as its own container on the `observability` network:
   #   use <container_name>:<port>
 
-  - job_name: "php-laravel-app"
-    scheme: https
-    bearer_token: "your-secret-token-here"
-    metrics_path: /metrics
-    static_configs:
-      - targets: ["host.docker.internal:8000"]
-        labels: { service: "laravel-app", env: "local" }
+  # - job_name: "php-laravel-app"
+  #   metrics_path: /metrics
+  #   static_configs:
+  #     - targets: ["host.docker.internal:8000"]
+  #       labels: { service: "laravel-app", env: "local" }
 
 #   - job_name: "node-app"
 #     scheme: https
@@ -61,11 +59,11 @@ scrape_configs:
 # # ---- Java / Spring Boot (Actuator + Micrometer) ------------------------
 #   # Requires: spring-boot-starter-actuator + micrometer-registry-prometheus
 #   # Exposes:  GET /actuator/prometheus
-#   - job_name: "spring-boot"
-#     metrics_path: "/actuator/prometheus"
-#     file_sd_configs:
-#       - files: ["targets/spring-boot/*.yml"]
-#         refresh_interval: 30s
+  - job_name: "spring-boot"
+    metrics_path: "/actuator/prometheus"
+    file_sd_configs:
+      - files: ["targets/spring-boot/*.yml"]
+        refresh_interval: 30s
 
   # ---- Plain Java (non-Spring — JMX-based apps) ---------------------------
   # Requires: jmx_exporter java agent attached at JVM start
@@ -94,18 +92,33 @@ scrape_configs:
   # App exposes its own /metrics route registered in routes/web.php or
   # routes/api.php. See exporters-reference/laravel.md for setup.
   - job_name: "laravel"
+    # scheme: https
+    metrics_path: "/metrics"
+    authorization:
+      type: Bearer
+      credentials: '9a093a3dc097a38d427d70e7ee1c7f39a27709cf9a8ccc9a18e6e6c306cd5ed1'
+    tls_config:
+      insecure_skip_verify: true
     file_sd_configs:
       - files: ["targets/laravel/*.yml"]
         refresh_interval: 30s
 
   # ---- Node.js (plain, prom-client) ---------------------------------------
   - job_name: "nodejs"
+    metrics_path: '/metrics'
+    authorization:
+      type: Bearer
+      credentials: '9a093a3dc097a38d427d70e7ee1c7f39a27709cf9a8ccc9a18e6e6c306cd5ed1'
     file_sd_configs:
       - files: ["targets/nodejs/*.yml"]
         refresh_interval: 30s
 
   # ---- NestJS (@willsoto/nestjs-prometheus, wraps prom-client) -----------
   - job_name: "nestjs"
+    metrics_path: '/metrics'
+    authorization:
+      type: Bearer
+      credentials: 'your-metrics-token-here'
     file_sd_configs:
       - files: ["targets/nestjs/*.yml"]
         refresh_interval: 30s

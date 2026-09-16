@@ -2,7 +2,7 @@ groups:
   - name: golden-signals
     rules:
       - alert: ServiceDown
-        expr: up{job=~"php-laravel-app|node-app|java-app"} == 0
+        expr: up{job=~"php-laravel-app|node-app|java-app|spring-boot"} == 0
         for: 1m
         labels:
           severity: critical
