@@ -1,7 +1,17 @@
 groups:
-  # Group 1: Fast, cheap lookups. Evaluated quickly.
+  # 1. NEW RECORDING GROUP: Pre-calculates the heavy math once a minute
+  - name: golden-signals-recording
+    interval: 1m
+    rules:
+      - record: service:http_request_duration_seconds:p95
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service))
+
+      - record: service:http_requests_5xx:ratio_rate5m
+        expr: sum(rate(http_requests_total{status=~"5[0-9][0-9]"}[5m])) by (service) / sum(rate(http_requests_total[5m])) by (service)
+
+  # 2. INFRASTRUCTURE ALERTS: Cheap and fast
   - name: golden-signals-infrastructure
-    interval: 30s  # Tighter check interval for critical availability
+    interval: 30s
     rules:
       - alert: ServiceDown
         expr: up{job=~"php-laravel-app|node-app|java-app|spring-boot"} == 0
@@ -21,15 +31,12 @@ groups:
           summary: "Disk space low on {{ $labels.instance }}"
           description: "Less than 15% free space remaining on {{ $labels.mountpoint }}."
 
-  # Group 2: Heavy mathematical aggregations. Run less frequently in parallel.
-  - name: golden-signals-metrics-heavy
-    interval: 1m  # Lower frequency to dramatically reduce CPU processing
+  # 3. METRICS ALERTS: Now incredibly lightweight because they use pre-computed values!
+  - name: golden-signals-metrics-alerts
+    interval: 1m
     rules:
       - alert: HighErrorRate
-        # OPTIMIZATION: Filtered to specific status codes starting with 5 to avoid regex parsing on every metric string
-        expr: |
-          sum(rate(http_requests_total{status=~"5[0-9][0-9]"}[5m])) by (service)
-            / sum(rate(http_requests_total[5m])) by (service) > 0.02
+        expr: service:http_requests_5xx:ratio_rate5m > 0.02
         for: 5m
         labels:
           severity: critical
@@ -38,9 +45,7 @@ groups:
           description: "{{ $labels.service }} has a 5xx error rate above 2% for 5 minutes."
 
       - alert: HighLatencyP95
-        # OPTIMIZATION: Heavy histogram_quantile computation is isolated here so it doesn't block vital health checks
-        expr: |
-          histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service)) > 1
+        expr: service:http_request_duration_seconds:p95 > 1
         for: 5m
         labels:
           severity: warning
