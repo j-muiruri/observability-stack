@@ -1,10 +1,10 @@
 global:
   resolve_timeout: 5m
   # Global SMTP Configuration for Email
-  smtp_smarthost: "smtp.gmail.com:587"
-  smtp_from: "alerts@example.com"
-  smtp_auth_username: "alerts@example.com"
-  smtp_auth_password: "your-app-password"
+  smtp_smarthost: ${ALERT_SMTP_SMARTHOST}
+  smtp_from: ${ALERT_SMTP_FROM}
+  smtp_auth_username: ${ALERT_SMTP_USERNAME}
+  smtp_auth_password: ${ALERT_SMTP_PASSWORD}
   smtp_require_tls: true
 
 route:
@@ -35,16 +35,16 @@ route:
 receivers:
   - name: "email-only"
     email_configs:
-      - to: "devops-team@example.com"
+      - to: ${ALERT_EMAIL_TO}
         send_resolved: true
 
   - name: "warning-discord-email"
     email_configs:
-      - to: "devops-team@example.com"
+      - to: ${ALERT_EMAIL_TO}
         send_resolved: true
     # Discord supports Slack-compatible incoming webhooks by appending /slack
     slack_configs:
-      - api_url: "https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN/slack"
+      - api_url: ${ALERT_DISCORD_WEBHOOK_URL}
         channel: "#alerts-warning"
         send_resolved: true
         title: '[{{ .Status | toUpper }}] {{ .CommonAnnotations.summary }}'
@@ -52,14 +52,14 @@ receivers:
 
   - name: "critical-sms-discord"
     slack_configs:
-      - api_url: "https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN/slack"
+      - api_url: ${ALERT_DISCORD_WEBHOOK_URL}
         channel: "#alerts-critical"
         send_resolved: true
         title: '🚨 [CRITICAL] {{ .CommonAnnotations.summary }}'
         text: '{{ .CommonAnnotations.description }}'
     webhook_configs:
       # Direct webhook pointing to your SMS Gateway (e.g., Twilio / SMS provider relay)
-      - url: "https://api.example-sms-gateway.com/v1/send-sms"
+      - url: ${ALERT_SMS_WEBHOOK_URL}
         send_resolved: false
 
 inhibit_rules:

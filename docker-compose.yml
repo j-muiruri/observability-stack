@@ -1,6 +1,6 @@
 version: "3.8"
 
-# Local observability stack: Grafana, Prometheus, Loki, Tempo, Alertmanager, Alloy.
+# Self-hosted observability stack: Grafana, Prometheus, Loki, Tempo, Alertmanager, Alloy.
 # extra_hosts lets containers reach services running directly on your host machine
 # (e.g. `php artisan serve`, `npm run dev`, `mvn spring-boot:run`) via host.docker.internal.
 # This works on Docker Desktop (Mac/Windows) and on Linux with Docker 20.10+.
@@ -21,29 +21,29 @@ volumes:
 
 services:
   grafana:
-    image: grafana/grafana:11.4.0
+    image: grafana/grafana:13.2.3
     container_name: grafana
     restart: unless-stopped
     deploy:
       resources:
         limits:
-          cpus: '0.25'      # Cap Grafana at 25% of 1 CPU core
-          memory: 384M
+          cpus: "${GRAFANA_CPU_LIMIT:-0.25}"
+          memory: "${GRAFANA_MEMORY_LIMIT:-384M}"
     ports:
-      - "3001:3000"
+      - "${GRAFANA_PORT:-3001}:3000"
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD:?Set GF_SECURITY_ADMIN_PASSWORD in .env}
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_FEATURE_TOGGLES_ENABLE=traceqlEditor
       # - GF_SERVER_ROOT_URL=https://monitor.company.com/grafana
       # - GF_SERVER_SERVE_FROM_SUB_PATH: "true"
-      - GF_SMTP_ENABLED=true
-      - GF_SMTP_HOST=smtp.example.com:587
-      - GF_SMTP_USER=your_email@example.com
-      - GF_SMTP_PASSWORD=your_password
-      - GF_SMTP_FROM_ADDRESS=admin@example.com
-      - GF_SMTP_FROM_NAME=Grafana Alerts
+      - GF_SMTP_ENABLED=${GF_SMTP_ENABLED:-true}
+      - GF_SMTP_HOST=${GF_SMTP_HOST:?Set GF_SMTP_HOST in .env}
+      - GF_SMTP_USER=${GF_SMTP_USER:?Set GF_SMTP_USER in .env}
+      - GF_SMTP_PASSWORD=${GF_SMTP_PASSWORD:?Set GF_SMTP_PASSWORD in .env}
+      - GF_SMTP_FROM_ADDRESS=${GF_SMTP_FROM_ADDRESS:?Set GF_SMTP_FROM_ADDRESS in .env}
+      - GF_SMTP_FROM_NAME=${GF_SMTP_FROM_NAME:-Observability}
 
 
     volumes:
@@ -51,20 +51,20 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning
     networks: [observability]
     depends_on: [prometheus, loki, tempo]
-    user: "1000:1000"   # Grafana runs as UID 472 by default, but Docker Desktop on Mac/Windows maps this to 1000
+    user: "${GRAFANA_RUN_UID:-1000}:${GRAFANA_RUN_GID:-1000}"   # Grafana defaults to UID 472; tune this for host volume ownership.
 
   prometheus:
-    image: prom/prometheus:v2.55.1
+    image: prom/prometheus:v3.15.0
     container_name: prometheus
     restart: unless-stopped
     deploy:
       resources:
         limits:
-          cpus: '0.50'     # Cap at 50% of 1 CPU core
-          memory: 1024M    # Cap RAM usage
+          cpus: "${PROMETHEUS_CPU_LIMIT:-0.50}"
+          memory: "${PROMETHEUS_MEMORY_LIMIT:-1024M}"
         reservations:
-          cpus: '0.10'
-          memory: 256M
+          cpus: "${PROMETHEUS_CPU_RESERVATION:-0.10}"
+          memory: "${PROMETHEUS_MEMORY_RESERVATION:-256M}"
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
@@ -72,9 +72,9 @@ services:
       - "--web.enable-remote-write-receiver"   # required: Alloy pushes OTel-derived metrics here
       - "--web.enable-lifecycle"                # allows POST /-/reload to pick up rule changes
     ports:
-      - "9090:9090"
+      - "${PROMETHEUS_PORT:-9090}:9090"
     volumes:
-    - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    - ./.secrets/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     - ./prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
     - ./prometheus/targets:/etc/prometheus/targets:ro
     - prometheus-data:/prometheus
@@ -82,30 +82,30 @@ services:
     <<: *host-gateway
 
   alertmanager:
-    image: prom/alertmanager:v0.27.0
+    image: prom/alertmanager:v0.34.1
     container_name: alertmanager
     restart: unless-stopped
     ports:
-      - "9093:9093"
+      - "${ALERTMANAGER_PORT:-9093}:9093"
     volumes:
-      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./.secrets/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
     networks: [observability]
     <<: *host-gateway
 
   loki:
-    image: grafana/loki:3.2.1
+    image: grafana/loki:3.7.8
     container_name: loki
     restart: unless-stopped
     deploy:
       resources:
         limits:
-          cpus: '0.30'      # Cap Loki at 30% of 1 CPU core
-          memory: 512M
+          cpus: "${LOKI_CPU_LIMIT:-0.30}"
+          memory: "${LOKI_MEMORY_LIMIT:-512M}"
         reservations:
-          cpus: '0.10'
-          memory: 128M
+          cpus: "${LOKI_CPU_RESERVATION:-0.10}"
+          memory: "${LOKI_MEMORY_RESERVATION:-128M}"
     ports:
-      - "3100:3100"
+      - "${LOKI_PORT:-3100}:3100"
     command: -config.file=/etc/loki/loki-config.yaml
     volumes:
       - ./loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
@@ -113,44 +113,44 @@ services:
     networks: [observability]
 
   tempo:
-    image: grafana/tempo:2.6.1
+    image: grafana/tempo:3.1.0
     container_name: tempo
     restart: unless-stopped
     deploy:
       resources:
         limits:
-          cpus: '0.30'      # Cap Tempo at 30% of 1 CPU core
-          memory: 512M
+          cpus: "${TEMPO_CPU_LIMIT:-0.30}"
+          memory: "${TEMPO_MEMORY_LIMIT:-512M}"
         reservations:
-          cpus: '0.10'
-          memory: 128M
+          cpus: "${TEMPO_CPU_RESERVATION:-0.10}"
+          memory: "${TEMPO_MEMORY_RESERVATION:-128M}"
     command: -config.file=/etc/tempo/tempo.yaml
     ports:
-      - "3200:3200"   # Tempo query API (used by Grafana)
-      - "4317:4317"   # OTLP gRPC (exposed here too as a fallback ingest path)
-      - "4318:4318"   # OTLP HTTP
+      - "${TEMPO_PORT:-3200}:3200"             # Tempo query API (used by Grafana)
+      - "${TEMPO_OTLP_GRPC_PORT:-4317}:4317"   # OTLP gRPC (exposed here too as a fallback ingest path)
+      - "${TEMPO_OTLP_HTTP_PORT:-4318}:4318"   # OTLP HTTP
     volumes:
       - ./tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
       - tempo-data:/var/tempo
     networks: [observability]
 
   alloy:
-    image: grafana/alloy:v1.5.1
+    image: grafana/alloy:v1.20.1
     container_name: alloy
     restart: unless-stopped
     deploy:
-          resources:
-            limits:
-              cpus: '0.30'
-              memory: 512M
+      resources:
+        limits:
+          cpus: "${ALLOY_CPU_LIMIT:-0.30}"
+          memory: "${ALLOY_MEMORY_LIMIT:-512M}"
     command:
       - "run"
       - "--server.http.listen-addr=0.0.0.0:12345"
       - "/etc/alloy/config.alloy"
     ports:
-      - "12345:12345"  # Alloy UI: http://localhost:12345 - inspect component health here first
-      - "4319:4317"    # OTLP gRPC - point your apps' OTEL_EXPORTER_OTLP_ENDPOINT here
-      - "4320:4318"    # OTLP HTTP
+      - "${ALLOY_PORT:-12345}:12345"           # Alloy UI: http://localhost:12345 - inspect component health here first
+      - "${ALLOY_OTLP_GRPC_PORT:-4319}:4317"   # OTLP gRPC - point your apps' OTEL_EXPORTER_OTLP_ENDPOINT here
+      - "${ALLOY_OTLP_HTTP_PORT:-4320}:4318"   # OTLP HTTP
     volumes:
       - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro   # lets Alloy discover & tail container logs

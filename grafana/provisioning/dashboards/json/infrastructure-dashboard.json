@@ -1,0 +1,276 @@
+{
+  "__inputs": [
+    { "name": "DS_PROMETHEUS", "label": "Prometheus", "description": "Same datasource as Fleet Overview", "type": "datasource", "pluginId": "prometheus", "pluginName": "Prometheus" }
+  ],
+  "__requires": [
+    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "11.4.0" },
+    { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" }
+  ],
+  "id": null,
+  "uid": "infra-overview-v1",
+  "title": "Infrastructure \u2014 Redis, Brokers, Databases",
+  "description": "Cross-cutting view of shared infrastructure that underpins every application: Redis, RabbitMQ, ActiveMQ, and PostgreSQL/MySQL (both self-hosted and AWS RDS). Filter by hosting to isolate self-hosted vs managed.",
+  "tags": ["custom", "infrastructure", "redis", "rabbitmq", "activemq", "postgresql", "mysql"],
+  "timezone": "browser",
+  "editable": true,
+  "graphTooltip": 1,
+  "style": "dark",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+
+  "templating": {
+    "list": [
+      { "name": "datasource", "type": "datasource", "query": "prometheus", "current": { "text": "Prometheus", "value": "${DS_PROMETHEUS}" }, "hide": 0, "label": "Data source", "refresh": 1 },
+      {
+        "name": "env",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "query": { "query": "label_values(up, env)", "refId": "env" },
+        "label": "Environment", "multi": true, "includeAll": true, "allValue": ".*",
+        "refresh": 2, "sort": 1, "current": { "text": ["All"], "value": ["$__all"] }, "hide": 0
+      }
+    ]
+  },
+
+  "annotations": {
+    "list": [
+      {
+        "name": "Firing alerts",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "enable": true,
+        "iconColor": "red",
+        "expr": "ALERTS{alertstate=\"firing\", env=~\"$env\", job=~\"redis|rabbitmq|activemq|postgresql-self-hosted|mysql-self-hosted|rds-postgresql|rds-mysql\"}",
+        "titleFormat": "{{alertname}}",
+        "textFormat": "{{service}} \u2014 {{summary}}",
+        "step": "30s"
+      }
+    ]
+  },
+
+  "panels": [
+    {
+      "id": 1, "type": "row", "title": "Redis", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }, "panels": []
+    },
+    {
+      "id": 2, "type": "stat", "title": "Redis Instances Up",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "targets": [{ "expr": "count(up{job=\"redis\", env=~\"$env\"} == 1)", "legendFormat": "up", "refId": "A" }],
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 3, "type": "timeseries", "title": "Memory Used by Instance",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 10, "x": 4, "y": 1 },
+      "targets": [{ "expr": "redis_used_memory_bytes{env=~\"$env\"}", "legendFormat": "{{service}}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never", "spanNulls": true } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 4, "type": "timeseries", "title": "Cache Hit Ratio (%)",
+      "description": "keyspace_hits / (hits + misses). A declining trend means your cache is losing effectiveness \u2014 check TTLs or eviction policy.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 10, "x": 14, "y": 1 },
+      "targets": [
+        { "expr": "100 * sum by (service) (rate(redis_keyspace_hits_total{env=~\"$env\"}[5m])) / (sum by (service) (rate(redis_keyspace_hits_total{env=~\"$env\"}[5m])) + sum by (service) (rate(redis_keyspace_misses_total{env=~\"$env\"}[5m])))", "legendFormat": "{{service}}", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent", "min": 0, "max": 100,
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never", "spanNulls": true },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 70 }, { "color": "green", "value": 90 }] }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "Connected Clients",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 9 },
+      "targets": [{ "expr": "redis_connected_clients{env=~\"$env\"}", "legendFormat": "{{service}}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never", "spanNulls": true } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Evicted Keys (rate)",
+      "description": "Non-zero eviction rate means Redis is under memory pressure and dropping keys before their TTL \u2014 correlates with dropping hit ratio above.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 9 },
+      "targets": [{ "expr": "sum by (service) (rate(redis_evicted_keys_total{env=~\"$env\"}[5m]))", "legendFormat": "{{service}}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never", "spanNulls": true } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+
+    {
+      "id": 10, "type": "row", "title": "Message Brokers (RabbitMQ + ActiveMQ)", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 17 }, "panels": []
+    },
+    {
+      "id": 11, "type": "table", "title": "RabbitMQ \u2014 Queue Depth by Queue",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 18 },
+      "targets": [
+        { "expr": "rabbitmq_queue_messages_ready{env=~\"$env\"}", "format": "table", "instant": true, "refId": "A" }
+      ],
+      "transformations": [
+        { "id": "organize", "options": { "excludeByName": { "Time": true, "__name__": true, "instance": true, "job": true }, "renameByName": { "service": "Service", "queue": "Queue", "Value": "Ready Messages" } } }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "align": "auto", "cellOptions": { "type": "color-background" }, "filterable": true },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1000 }, { "color": "red", "value": 10000 }] }
+        },
+        "overrides": []
+      },
+      "options": { "showHeader": true, "sortBy": [{ "displayName": "Ready Messages", "desc": true }] }
+    },
+    {
+      "id": 12, "type": "timeseries", "title": "RabbitMQ \u2014 Consumer Count by Queue",
+      "description": "Zero consumers on a non-empty queue is a critical failure mode.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 18 },
+      "targets": [{ "expr": "rabbitmq_queue_consumers{env=~\"$env\"}", "legendFormat": "{{service}} / {{queue}}", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never", "spanNulls": true },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["min"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 13, "type": "timeseries", "title": "ActiveMQ \u2014 Queue Size by Destination",
+      "description": "Requires jmx_exporter with an ActiveMQ MBean mapping (see exporters-reference). Metric name shown assumes the standard jmx_exporter naming convention for ActiveMQ's QueueSize MBean attribute.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 26 },
+      "targets": [{ "expr": "org_apache_activemq_QueueSize{env=~\"$env\"}", "legendFormat": "{{service}} / {{destination}}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never", "spanNulls": true } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 14, "type": "timeseries", "title": "Broker Message Publish Rate (All Brokers)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 26 },
+      "targets": [
+        { "expr": "sum by (service) (rate(rabbitmq_channel_messages_published_total{env=~\"$env\"}[5m]))", "legendFormat": "{{service}} (rabbitmq)", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never", "spanNulls": true } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+
+    {
+      "id": 20, "type": "row", "title": "Databases \u2014 PostgreSQL & MySQL (Self-Hosted + RDS)", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 34 }, "panels": []
+    },
+    {
+      "id": 21, "type": "table", "title": "Database Inventory \u2014 Status & Hosting",
+      "description": "hosting label distinguishes self-hosted vs aws-rds \u2014 filter by editing the query if you want just one.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 35 },
+      "targets": [
+        { "expr": "up{job=~\"postgresql-self-hosted|mysql-self-hosted|rds-postgresql|rds-mysql\", env=~\"$env\"}", "format": "table", "instant": true, "refId": "A" }
+      ],
+      "transformations": [
+        { "id": "organize", "options": { "excludeByName": { "Time": true, "__name__": true, "instance": true }, "renameByName": { "service": "Service", "job": "Type", "hosting": "Hosting", "env": "Env", "Value": "Up" } } }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "filterable": true },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Up" },
+            "properties": [
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } },
+              { "id": "mappings", "value": [{ "type": "value", "options": { "0": { "text": "DOWN" }, "1": { "text": "UP" } } }] }
+            ]
+          }
+        ]
+      },
+      "options": { "showHeader": true }
+    },
+    {
+      "id": 22, "type": "timeseries", "title": "PostgreSQL \u2014 Active Connections",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 43 },
+      "targets": [
+        { "expr": "pg_stat_database_numbackends{env=~\"$env\"}", "legendFormat": "{{service}} ({{hosting}})", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never", "spanNulls": true } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 23, "type": "timeseries", "title": "MySQL \u2014 Connected Threads",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 43 },
+      "targets": [
+        { "expr": "mysql_global_status_threads_connected{env=~\"$env\"}", "legendFormat": "{{service}} ({{hosting}})", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never", "spanNulls": true } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 24, "type": "timeseries", "title": "PostgreSQL \u2014 Transaction Rate (commit vs rollback)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 51 },
+      "targets": [
+        { "expr": "sum by (service) (rate(pg_stat_database_xact_commit{env=~\"$env\"}[5m]))", "legendFormat": "{{service}} commit/s", "refId": "A" },
+        { "expr": "sum by (service) (rate(pg_stat_database_xact_rollback{env=~\"$env\"}[5m]))", "legendFormat": "{{service}} rollback/s", "refId": "B" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 5, "showPoints": "never", "spanNulls": true } },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": ".*rollback.*" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 25, "type": "timeseries", "title": "MySQL \u2014 Slow Query Rate",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 51 },
+      "targets": [
+        { "expr": "sum by (service) (rate(mysql_global_status_slow_queries{env=~\"$env\"}[5m]))", "legendFormat": "{{service}}", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never", "spanNulls": true },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1 }] }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 26, "type": "timeseries", "title": "PostgreSQL \u2014 Replication Lag (seconds)",
+      "description": "Only populated if you run read replicas. A climbing value means replicas are falling behind primary \u2014 relevant for read-scaling correctness.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 59 },
+      "targets": [{ "expr": "pg_replication_lag_seconds{env=~\"$env\"}", "legendFormat": "{{service}}", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never", "spanNulls": true },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 10 }, { "color": "red", "value": 60 }] }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 27, "type": "timeseries", "title": "Row Lock Waits (MySQL InnoDB)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 59 },
+      "targets": [{ "expr": "sum by (service) (rate(mysql_global_status_innodb_row_lock_waits{env=~\"$env\"}[5m]))", "legendFormat": "{{service}}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never", "spanNulls": true } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    }
+  ]
+}

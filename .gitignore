@@ -1,1 +1,5 @@
 prometheus/targets/*/*.yml
+.env
+.env.*
+!.env.example
+.secrets/

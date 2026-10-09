@@ -30,7 +30,9 @@ function metricsMiddleware(req, res, next) {
 
   res.on('finish', () => {
     const durationSeconds = Number(process.hrtime.bigint() - start) / 1e9;
-    const route = req.route ? req.route.path : req.path;
+    // Never label metrics with raw URLs: IDs and query paths create unbounded
+    // time series. Group requests that did not match a route explicitly.
+    const route = req.route ? `${req.baseUrl}${req.route.path}` : 'unmatched';
 
     httpRequestsTotal.inc({ method: req.method, route, status: res.statusCode });
     httpRequestDuration.observe({ method: req.method, route }, durationSeconds);

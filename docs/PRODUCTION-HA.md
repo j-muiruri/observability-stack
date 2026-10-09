@@ -1,0 +1,48 @@
+# Production, high availability, and horizontal scaling
+
+**Status:** architecture and operations guidance, not a deployed production topology. Checked against official product documentation on **2026-10-09**. This repository's Docker Compose stack remains a single-host reference deployment; it is not HA, does not horizontally scale stateful backends, and has not been runtime-tested as a production system.
+
+## What the checked-in Compose deployment does not provide
+
+- One container per component on one Docker host; no replica scheduling, multi-zone placement, health-aware service routing, or rolling deployment controller.
+- Local named volumes for Prometheus, Loki, Tempo, and Grafana. Docker volumes are not shared, replicated, object storage, or backups.
+- A standalone Prometheus TSDB, single Alertmanager, single-process Loki, local-filesystem Tempo, one Alloy, and the OSS Grafana configuration. A host or disk failure can make these services unavailable; local data may be lost.
+- Authentication/TLS and authorization for every backend/API, an external secrets manager, a reliable ingress/load balancer, or enterprise identity provider. Do not expose these ports directly to untrusted networks.
+- Production capacity limits or an agreed ingestion, cardinality, query, availability, RPO/RTO, or retention SLO. Measure those before sizing.
+
+Use Compose for evaluation or a deliberately single-host service with accepted downtime and tested host-level recovery. For production HA, deploy on a scheduler such as Kubernetes and use the supported product charts/operators or a managed backend. Do not scale this Compose file by setting `deploy.replicas`: local writable volumes, container names, fixed host port mappings, stateful component roles, and missing cluster coordination make that unsafe.
+
+## Recommended production topology by signal
+
+| Signal/component | Horizontal/HA pattern | Durable state and key caveats |
+|---|---|---|
+| **Metrics: Prometheus** | Two or more independent Prometheus replicas scrape the same targets. Give each a stable `external_labels` pair such as cluster and replica. Send alerts from every replica to every Alertmanager peer directly, with `alert_relabel_configs` removing replica-only labels so identical alerts deduplicate. Use Thanos or another supported query/storage layer for cross-replica query deduplication and long-term object storage, or remote-write to a scalable backend such as Mimir. | Never point two Prometheus processes at the same TSDB directory or shared writable volume. Replica-local TSDBs are independent; HA querying/deduplication and long-term durability are separate concerns. Protect the remote-write receiver; it is an ingest API, not authentication. |
+| **Alertmanager** | Run an odd-numbered peer group (commonly 3) spread across failure domains. Configure every Prometheus replica with all peer addresses; do not put a load balancer between Prometheus and Alertmanager. Put a separate authenticated UI/load-balanced access path in front only if needed. | Persist each peer's own state on its own durable volume. Memberlist uses gossip; allow peer TCP/UDP traffic (or the TLS transport's required port) only between peers. Partitions favor notification delivery and can produce duplicate notifications; delivery is not exactly-once. |
+| **Logs: Loki** | For a moderate single-cluster scale, follow the current supported HA monolithic or microservices architecture with shared object storage, replicated ring state, and separate scalable read/write/backend roles. Put an authenticated gateway/reverse proxy in front. Scale ingestion/distributor and read/query components based on measured throughput and query latency. | Use S3, GCS, or Azure Blob for production chunks/index as supported by the chosen Loki release; provision ring/memberlist, replication factor, compactor/retention, and object-store IAM deliberately. Local filesystem is not multi-replica storage. **Do not start a new production deployment on Simple Scalable Deployment (SSD): Grafana documents SSD as deprecated for removal in Loki 4.0.** |
+| **Traces: Tempo** | Prefer the supported microservices architecture for production; scale distributors, live-stores, block-builders, queriers/query frontends, and metrics-generators independently. Place a load balancer/gateway before distributors and query frontends as appropriate. | Tempo 3.x production microservices architecture uses a Kafka-compatible durable queue and S3/GCS/Azure Blob object storage. Local filesystem monolithic mode is for local/small workloads, not HA. Tempo has no built-in authentication: protect ingest/query paths with an authenticated TLS gateway and network policy. |
+| **Collection: Alloy** | Use a host agent/DaemonSet for host metrics and logs. Use a separate centralized Alloy fleet for application telemetry. Scale pull/scrape collection using Alloy clustering or target sharding; put an OTLP load balancer before stateless push collectors. Split metrics, logs, and traces into separate fleets if noisy-neighbor effects appear. | Preserve local WAL/state where the selected Alloy components need it. Trace-aware stateful processing (tail sampling, span metrics/service graphs) requires consistent trace-ID routing/load balancing; naive round-robin can split a trace across collectors and produce incorrect results. Avoid Docker socket access in production unless its privilege trade-off is accepted; prefer least-privilege host collection. |
+| **Grafana** | Run multiple stateless Grafana instances behind TLS ingress/load balancing. Use one supported shared external database (PostgreSQL or MySQL) and configure consistent auth/secret/session settings across replicas; use enterprise SSO/IdP and externalize provisioning. | Do not use per-container SQLite databases for multi-replica Grafana. Confirm the selected Grafana edition/features and database HA/failover design meet requirements. |
+
+## Deployment and security checklist
+
+1. **Set SLOs and workload assumptions.** Record average and peak samples/spans/log bytes per second, active metric series, label/stream cardinality, query concurrency and latency, retention, tenant count, availability target, RPO/RTO, and growth. Load-test representative traffic; no generic CPU/memory figures in this repository are production sizing.
+2. **Select supported release-specific deployment modes.** Check the release notes and docs for the exact pinned product version. Validate all config using that version's `promtool`, `amtool`, Alloy, Loki, and Tempo validators where available. Test upgrades and rollback using restored backup copies.
+3. **Design state and recovery.** Use durable object storage for Loki/Tempo and the chosen long-term metrics system; use independent Prometheus TSDBs and per-peer Alertmanager/Grafana state as required. Define encryption at rest, IAM least privilege, retention/deletion, backups, restore drills, and capacity alerts.
+4. **Secure every boundary.** TLS from clients through ingress to backends, SSO/MFA and role-based access, private service networking, allowlists/network policies, rate limits, tenant boundaries, and secret-manager/workload-identity delivery. Keep credentials out of Git, Compose interpolation output, rendered config artifacts, image layers, and logs.
+5. **Plan telemetry flow and backpressure.** Separate OTLP ingress from backend query/UI paths. Define queue sizing, retries, timeouts, load balancing, WAL persistence, dropped/refused signal alerts, and overload behavior. Stateful processors must preserve their routing keys.
+6. **Operate it as a distributed system.** Monitor each component and its dependencies; test node, zone, object-store, Kafka, network-partition, and receiver failures; document upgrades, restore, alert-delivery verification, and incident runbooks.
+
+## This repository's `.env` workflow
+
+The Compose quickstart accepts a **local/operator-owned `.env` only** for bootstrap and testing. `.env.example` contains placeholders, not working credentials. Rendered Prometheus/Alertmanager files under `.secrets/` contain secrets and are ignored by Git. Do not copy this mechanism into a multi-node production environment: use the platform's secret manager, mounted secret files, or workload identity and deployment-specific config templating. Every replica must receive the correct secret without storing it in Git or a world-readable file.
+
+After replacing any previously embedded bearer token, treat the former value as exposed: revoke/rotate it at each application before deployment. A Git working-tree change does not remove credentials from existing commits, clones, backups, or chat logs.
+
+## Official references
+
+- [Prometheus HA and external labels](https://prometheus.io/docs/prometheus/latest/high_availability/) and [storage](https://prometheus.io/docs/prometheus/latest/storage/)
+- [Alertmanager HA](https://prometheus.io/docs/alerting/latest/high_availability/) and [Prometheus alerting configuration](https://prometheus.io/docs/prometheus/latest/configuration/configuration/)
+- [Loki deployment modes](https://grafana.com/docs/loki/latest/get-started/deployment-modes/) and [Loki storage](https://grafana.com/docs/loki/latest/operations/storage/)
+- [Tempo architecture](https://grafana.com/docs/tempo/latest/operations/architecture/) and [Tempo deployment](https://grafana.com/docs/tempo/latest/operations/deployment/)
+- [Alloy deployment topologies and scaling](https://grafana.com/docs/alloy/latest/get-started/deploy/)
+- [Grafana authentication](https://grafana.com/docs/grafana/latest/setup-grafana/configure-security/configure-authentication/) and [Grafana HA](https://grafana.com/docs/grafana/latest/setup-grafana/set-up-for-high-availability/)

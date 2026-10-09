@@ -10,12 +10,14 @@ distributor:
         http:
           endpoint: 0.0.0.0:4318
 
-ingester:
-  max_block_duration: 5m
+live_store:
+  max_block_duration: 5m   # Preserve the former ingester block interval.
 
-compactor:
-  compaction:
-    block_retention: 168h   # 7 days - matches Section 3.3 of the report
+backend_scheduler:
+  provider:
+    compaction:
+      compaction:
+        block_retention: 168h   # 7 days
 
 storage:
   trace:
